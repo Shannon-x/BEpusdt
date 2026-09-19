@@ -41,7 +41,6 @@
     "instruction1": "Gunakan hanya jaringan <strong>{{network}}</strong>, jangan salah kirim {{warningToken}}!",
     "instruction1Native": "Kirim {{token}} hanya melalui jaringan <strong>{{network}}</strong>, jangan gunakan chain lain!",
     "instruction2": "Pesanan dikonfirmasi otomatis setelah dana masuk",
-    "instruction3": "Biaya ditanggung pengirim: harus masuk tepat <strong>{{amount}}</strong>, kurang tidak akan dikonfirmasi otomatis",
     "instruction4": "Ada pertanyaan? Hubungi dukungan penjual",
     "copied": "Tersalin",
     "copySuccess": "✓ Tersalin",
@@ -87,7 +86,7 @@
     "instructionExchange": "Gunakan <strong>transfer internal</strong> di aplikasi bursa ke UID ini (tanpa biaya). Jangan gunakan penarikan on-chain",
     "instructionExchangeBinance": "Binance → Dompet → Tarik → <strong>“Pengguna Binance / transfer internal”</strong> atau Binance Pay, penerima = Binance ID (Pay ID) ini. Jangan pilih penarikan on-chain",
     "instructionExchangeOkx": "OKX → Aset → Tarik → <strong>“Transfer internal”</strong>, penerima = UID ini. Jangan pilih penarikan on-chain",
-    "amountCaption": "Biaya jaringan ditanggung pengirim — jumlah ini yang harus masuk ke penerima",
-    "instructionFee": "Biaya jaringan ditanggung pengirim: jumlah yang ditampilkan adalah <strong>jumlah yang harus diterima</strong>. Pastikan tepat <strong>{{amount}}</strong> masuk; jika wallet memotong biaya dari jumlah kirim, tambahkan biayanya"
+    "amountCaption": "Biaya jaringan ditanggung pengirim — ini jumlah yang harus diterima penjual",
+    "instructionFee": "Biaya jaringan ditanggung pengirim: angka yang ditampilkan adalah <strong>jumlah yang diterima penjual</strong>. Jika wallet memotong biaya dari jumlah kirim, tambahkan biayanya"
   }
 }

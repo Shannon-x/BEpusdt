@@ -41,7 +41,6 @@
     "instruction1": "Use apenas a rede <strong>{{network}}</strong>; não envie {{warningToken}} por engano!",
     "instruction1Native": "Envie {{token}} apenas pela rede <strong>{{network}}</strong>; não use outra cadeia!",
     "instruction2": "O pedido é confirmado automaticamente quando os fundos chegam",
-    "instruction3": "A taxa é paga por você: deve chegar exatamente <strong>{{amount}}</strong>; valor menor não é confirmado automaticamente",
     "instruction4": "Dúvidas? Fale com o suporte do vendedor",
     "copied": "Copiado",
     "copySuccess": "✓ Copiado",
@@ -87,7 +86,7 @@
     "instructionExchange": "Use <strong>transferência interna</strong> no app da exchange para este UID (sem taxa). Não use saque on-chain",
     "instructionExchangeBinance": "Binance → Carteira → Sacar → <strong>“Usuário Binance / transferência interna”</strong> ou Binance Pay, destinatário = este Binance ID (Pay ID). Não escolha saque on-chain",
     "instructionExchangeOkx": "OKX → Ativos → Sacar → <strong>“Transferência interna”</strong>, destinatário = este UID. Não escolha saque on-chain",
-    "amountCaption": "A taxa de rede é paga por você — este é o valor que deve chegar ao destinatário",
-    "instructionFee": "A taxa de rede é paga por você: o valor exibido é o <strong>valor a receber</strong>. Deve chegar exatamente <strong>{{amount}}</strong>; se a carteira descontar a taxa do valor enviado, acrescente-a"
+    "amountCaption": "A taxa de rede é paga por você — este é o valor que o vendedor deve receber",
+    "instructionFee": "A taxa de rede é paga por você: o valor exibido é o <strong>valor que o vendedor recebe</strong>. Se a carteira descontar a taxa do valor enviado, acrescente-a"
   }
 }

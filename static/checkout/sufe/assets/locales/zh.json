@@ -41,7 +41,6 @@
     "instruction1": "请务必使用 <strong>{{network}} 网络</strong>，请勿误转 {{warningToken}}！",
     "instruction1Native": "请务必使用 <strong>{{network}} 网络</strong>转账 {{token}}，请勿跨错网络！",
     "instruction2": "到账后系统会自动确认，无需人工操作",
-    "instruction3": "手续费由您承担，实际到账必须为 <strong>{{amount}}</strong>，少一分都无法自动确认",
     "instruction4": "如有其他疑问，请联系商户客服处理",
     "copied": "已复制",
     "copySuccess": "✓ 已复制",
@@ -87,7 +86,7 @@
     "instructionExchange": "请在交易所 App 内使用<strong>内部转账</strong>向该 UID 转账，免手续费；请勿走链上提现",
     "instructionExchangeBinance": "币安 App → 资金 → 提现 → 选择<strong>「币安用户 / 内部转账」</strong>，或使用 Binance Pay，收款方填写该 Binance ID（Pay ID）；请勿选择链上提现",
     "instructionExchangeOkx": "欧易 App → 资产 → 提币 → 选择<strong>「内部转账」</strong>，收款方填写该 UID；请勿选择链上提币",
-    "amountCaption": "网络手续费由您承担，此数额为对方实际到账数额",
-    "instructionFee": "网络手续费由您承担：页面显示的是<strong>到账金额</strong>，请确保对方实际收到 <strong>{{amount}}</strong>；若钱包提示手续费从转账金额中扣除，请相应加上手续费"
+    "amountCaption": "网络手续费由您承担，此数额为商家实际到账数额",
+    "instructionFee": "网络手续费由您承担：页面显示的是<strong>商家到账金额</strong>；若钱包提示手续费从转账金额中扣除，请相应加上手续费，确保商家到账数额一致"
   }
 }

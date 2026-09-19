@@ -809,10 +809,14 @@
         if (url) {
             el.href = url;
             el.removeAttribute('aria-disabled');
-        } else {
-            el.href = '#';
-            el.setAttribute('aria-disabled', 'true');
+            show(el);
+            return;
         }
+
+        // 未配置客服链接时整个按钮隐藏，避免页面上出现一个点了没反应的问号
+        el.href = '#';
+        el.setAttribute('aria-disabled', 'true');
+        hide(el);
     }
 
     /* 阶段一：选择币种 / 网络 */

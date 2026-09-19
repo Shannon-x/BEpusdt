@@ -41,7 +41,6 @@
     "instruction1": "必ず <strong>{{network}} ネットワーク</strong>を使用し、{{warningToken}} を誤送金しないでください",
     "instruction1Native": "{{token}} は必ず <strong>{{network}} ネットワーク</strong>で送金してください。他のチェーンは使用不可です",
     "instruction2": "着金後、注文は自動的に確認されます",
-    "instruction3": "手数料はお客様負担です。着金額はちょうど <strong>{{amount}}</strong> である必要があり、不足すると自動確認されません",
     "instruction4": "ご不明点は販売者のサポートまでお問い合わせください",
     "copied": "コピーしました",
     "copySuccess": "✓ コピー済み",
@@ -87,7 +86,7 @@
     "instructionExchange": "取引所アプリの<strong>内部送金</strong>でこの UID に送金してください（手数料無料）。オンチェーン出金は使用しないでください",
     "instructionExchangeBinance": "Binance アプリ → ウォレット → 出金 → <strong>「Binance ユーザー / 内部送金」</strong>または Binance Pay で、受取人にこの Binance ID（Pay ID）を入力。オンチェーン出金は選ばないでください",
     "instructionExchangeOkx": "OKX アプリ → 資産 → 出金 → <strong>「内部送金」</strong>で、受取人にこの UID を入力。オンチェーン出金は選ばないでください",
-    "amountCaption": "ネットワーク手数料はお客様負担です。この金額が実際に着金する必要があります",
-    "instructionFee": "ネットワーク手数料はお客様負担です。表示金額は<strong>着金金額</strong>であり、<strong>{{amount}}</strong> がそのまま着金する必要があります。ウォレットが手数料を送金額から差し引く場合は、手数料分を上乗せしてください"
+    "amountCaption": "ネットワーク手数料はお客様負担です。この金額が販売者に着金する必要があります",
+    "instructionFee": "ネットワーク手数料はお客様負担です：表示されているのは<strong>販売者の着金額</strong>です。ウォレットが手数料を送金額から差し引く場合は、その分を上乗せしてください"
   }
 }

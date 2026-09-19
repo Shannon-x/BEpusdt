@@ -41,7 +41,6 @@
     "instruction1": "Usa solo la red <strong>{{network}}</strong>; ¡no envíes {{warningToken}} por error!",
     "instruction1Native": "Envía {{token}} solo por la red <strong>{{network}}</strong>; ¡no uses otra cadena!",
     "instruction2": "El pedido se confirma automáticamente al recibir los fondos",
-    "instruction3": "La comisión la pagas tú: debe llegar exactamente <strong>{{amount}}</strong>; si llega menos no se confirmará automáticamente",
     "instruction4": "¿Dudas? Contacta con el soporte del vendedor",
     "copied": "Copiado",
     "copySuccess": "✓ Copiado",
@@ -87,7 +86,7 @@
     "instructionExchange": "Usa <strong>transferencia interna</strong> en la app del exchange a este UID (sin comisión). No uses retiro on-chain",
     "instructionExchangeBinance": "Binance → Cartera → Retirar → <strong>«Usuario de Binance / transferencia interna»</strong> o Binance Pay, destinatario = este Binance ID (Pay ID). No elijas retiro on-chain",
     "instructionExchangeOkx": "OKX → Activos → Retirar → <strong>«Transferencia interna»</strong>, destinatario = este UID. No elijas retiro on-chain",
-    "amountCaption": "La comisión de red la pagas tú: este es el importe que debe llegar al destinatario",
-    "instructionFee": "La comisión de red la pagas tú: el importe mostrado es el <strong>importe a recibir</strong>. Debe llegar exactamente <strong>{{amount}}</strong>; si tu monedero descuenta la comisión del importe enviado, añádela"
+    "amountCaption": "La comisión de red la pagas tú: este es el importe que debe recibir el vendedor",
+    "instructionFee": "La comisión de red la pagas tú: la cifra mostrada es el <strong>importe que recibe el vendedor</strong>. Si tu monedero descuenta la comisión del importe enviado, añádela"
   }
 }

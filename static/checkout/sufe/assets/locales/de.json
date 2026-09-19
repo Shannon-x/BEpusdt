@@ -41,7 +41,6 @@
     "instruction1": "Nur über das Netzwerk <strong>{{network}}</strong> senden – kein {{warningToken}} versehentlich überweisen!",
     "instruction1Native": "{{token}} nur über das Netzwerk <strong>{{network}}</strong> senden – keine andere Chain verwenden!",
     "instruction2": "Die Bestellung wird nach Eingang automatisch bestätigt",
-    "instruction3": "Gebühr tragen Sie: Es müssen genau <strong>{{amount}}</strong> ankommen; ein geringerer Betrag wird nicht automatisch bestätigt",
     "instruction4": "Fragen? Wenden Sie sich an den Support des Händlers",
     "copied": "Kopiert",
     "copySuccess": "✓ Kopiert",
@@ -87,7 +86,7 @@
     "instructionExchange": "Nutzen Sie in der Börsen-App die <strong>interne Überweisung</strong> an diese UID (gebührenfrei). Keine On-Chain-Auszahlung verwenden",
     "instructionExchangeBinance": "Binance → Wallet → Auszahlen → <strong>„Binance-Nutzer / interne Überweisung“</strong> oder Binance Pay, Empfänger = diese Binance-ID (Pay ID). Keine On-Chain-Auszahlung wählen",
     "instructionExchangeOkx": "OKX → Assets → Auszahlen → <strong>„Interne Überweisung“</strong>, Empfänger = diese UID. Keine On-Chain-Auszahlung wählen",
-    "amountCaption": "Die Netzwerkgebühr tragen Sie – dieser Betrag muss beim Empfänger ankommen",
-    "instructionFee": "Die Netzwerkgebühr tragen Sie: Der angezeigte Betrag ist der <strong>zu empfangende Betrag</strong>. Es müssen genau <strong>{{amount}}</strong> ankommen; zieht Ihre Wallet die Gebühr vom Sendebetrag ab, rechnen Sie sie hinzu"
+    "amountCaption": "Die Netzwerkgebühr tragen Sie – dieser Betrag muss beim Händler ankommen",
+    "instructionFee": "Die Netzwerkgebühr tragen Sie: Angezeigt ist der <strong>Betrag, den der Händler erhält</strong>. Zieht Ihre Wallet die Gebühr vom Sendebetrag ab, rechnen Sie sie hinzu"
   }
 }

@@ -1,0 +1,81 @@
+package router
+
+import (
+	"encoding/json"
+	"io/fs"
+	"net/http"
+	"net/http/httptest"
+	"strings"
+	"testing"
+
+	"github.com/gin-gonic/gin"
+	"github.com/v03413/bepusdt/static"
+)
+
+func TestThemeAssetsAreServedWithRevalidation(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	e := gin.New()
+	registerAssetsFromFS(e, static.Checkout, "checkout/sufe", "/checkout/sufe/assets")
+
+	req := httptest.NewRequest(http.MethodGet, "/checkout/sufe/assets/js/checkout.js", nil)
+	w := httptest.NewRecorder()
+	e.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("theme asset must be served, got %d", w.Code)
+	}
+	// 资源文件名固定，必须要求浏览器每次校验，否则升级后仍用缓存里的旧脚本
+	if cc := w.Header().Get("Cache-Control"); cc != "no-cache" {
+		t.Fatalf("theme asset must be revalidated, Cache-Control=%q", cc)
+	}
+	if !strings.Contains(w.Body.String(), "currentAmountText") {
+		t.Fatal("served asset should be the bundled checkout.js")
+	}
+}
+
+// 收银台文案不得残留未替换的占位符：sufe 主题不通过 i18next 变量插值，
+// 一旦脚本与语言文件版本不一致，占位符会原样显示给付款人。
+func TestSufeLocalesHaveNoAmountPlaceholder(t *testing.T) {
+	entries, err := fs.ReadDir(static.Checkout, "checkout/sufe/assets/locales")
+	if err != nil {
+		t.Fatalf("read sufe locales: %v", err)
+	}
+	if len(entries) < 14 {
+		t.Fatalf("expected at least 14 locale files, got %d", len(entries))
+	}
+
+	for _, entry := range entries {
+		name := "checkout/sufe/assets/locales/" + entry.Name()
+		raw, err := fs.ReadFile(static.Checkout, name)
+		if err != nil {
+			t.Fatalf("read %s: %v", name, err)
+		}
+		if strings.Contains(string(raw), "{{amount}}") {
+			t.Fatalf("%s still contains the {{amount}} placeholder", name)
+		}
+
+		var doc struct {
+			Payment map[string]any `json:"payment"`
+		}
+		if err := json.Unmarshal(raw, &doc); err != nil {
+			t.Fatalf("%s is not valid JSON: %v", name, err)
+		}
+		for _, key := range []string{"instructionFee", "amountCaption", "paymentAmount"} {
+			if v, ok := doc.Payment[key].(string); !ok || strings.TrimSpace(v) == "" {
+				t.Fatalf("%s misses translation for %s", name, key)
+			}
+		}
+	}
+
+	view, err := fs.ReadFile(static.Checkout, "checkout/sufe/views/checkout.html")
+	if err != nil {
+		t.Fatalf("read sufe template: %v", err)
+	}
+	if strings.Contains(string(view), "{{amount}}") {
+		t.Fatal("sufe template still contains the {{amount}} placeholder")
+	}
+	// 未配置客服链接时按钮默认隐藏，由脚本在拿到订单后决定是否展示
+	if !strings.Contains(string(view), `id="supportBtn"`) || !strings.Contains(string(view), "rel=\"noopener\" hidden") {
+		t.Fatal("support button must default to hidden")
+	}
+}

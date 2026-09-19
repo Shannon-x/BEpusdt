@@ -41,7 +41,6 @@
     "instruction1": "請務必使用 <strong>{{network}} 網路</strong>，請勿誤轉 {{warningToken}}！",
     "instruction1Native": "請務必使用 <strong>{{network}} 網路</strong>轉帳 {{token}}，請勿跨錯網路！",
     "instruction2": "到帳後系統會自動確認，無需人工操作",
-    "instruction3": "手續費由您承擔，實際到帳必須為 <strong>{{amount}}</strong>，少一分都無法自動確認",
     "instruction4": "如有其他疑問，請聯絡商戶客服處理",
     "copied": "已複製",
     "copySuccess": "✓ 已複製",
@@ -87,7 +86,7 @@
     "instructionExchange": "請在交易所 App 內使用<strong>內部轉帳</strong>向該 UID 轉帳，免手續費；請勿走鏈上提現",
     "instructionExchangeBinance": "幣安 App → 資金 → 提現 → 選擇<strong>「幣安用戶 / 內部轉帳」</strong>，或使用 Binance Pay，收款方填寫該 Binance ID（Pay ID）；請勿選擇鏈上提現",
     "instructionExchangeOkx": "歐易 App → 資產 → 提幣 → 選擇<strong>「內部轉帳」</strong>，收款方填寫該 UID；請勿選擇鏈上提幣",
-    "amountCaption": "網路手續費由您承擔，此數額為對方實際到帳數額",
-    "instructionFee": "網路手續費由您承擔：頁面顯示的是<strong>到帳金額</strong>，請確保對方實際收到 <strong>{{amount}}</strong>；若錢包提示手續費從轉帳金額中扣除，請相應加上手續費"
+    "amountCaption": "網路手續費由您承擔，此數額為商家實際到帳數額",
+    "instructionFee": "網路手續費由您承擔：頁面顯示的是<strong>商家到帳金額</strong>；若錢包提示手續費從轉帳金額中扣除，請相應加上手續費，確保商家到帳數額一致"
   }
 }

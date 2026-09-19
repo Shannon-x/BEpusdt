@@ -324,10 +324,10 @@
             if (text && text !== 'feeNoticeAmount') { el.textContent = text; return; }
         }
         if (amount) {
-            el.textContent = '手续费由您承担，请确保实际到账 ' + amount + ' ' + (currency || '') + '，少一分都无法自动确认';
+            el.textContent = '手续费由您承担，请确保商家实际到账 ' + amount + ' ' + (currency || '') + '，少一分都无法自动确认';
             return;
         }
-        el.textContent = t('feeNotice', '手续费由您承担，实际到账金额必须与页面显示完全一致');
+        el.textContent = t('feeNotice', '手续费由您承担，页面显示的是商家实际到账金额');
     }
 
     function updatePayBtn() {

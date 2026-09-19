@@ -128,7 +128,13 @@ func registerAssetsFromFS(e *gin.Engine, src fs.FS, baseDir, routePath string) {
 		return
 	}
 
-	e.StaticFS(routePath, http.FS(subFS(src, assetsDir)))
+	// 收银台主题的资源文件名固定（checkout.js / checkout.css / locales/*.json），升级后路径不变。
+	// 不加缓存头时浏览器会按启发式规则长期复用旧文件，导致升级后页面仍是旧逻辑；
+	// no-cache 要求每次带条件请求校验，命中返回 304，几乎不增加流量，但升级后立即生效。
+	group := e.Group(routePath, func(ctx *gin.Context) {
+		ctx.Header("Cache-Control", "no-cache")
+	})
+	group.StaticFS("/", http.FS(subFS(src, assetsDir)))
 }
 
 func subFS(src fs.FS, dir string) fs.FS {

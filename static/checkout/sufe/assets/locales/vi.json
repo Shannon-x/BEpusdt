@@ -41,7 +41,6 @@
     "instruction1": "Chỉ chuyển qua mạng <strong>{{network}}</strong>, đừng gửi nhầm {{warningToken}}!",
     "instruction1Native": "Chỉ gửi {{token}} qua mạng <strong>{{network}}</strong>, không dùng chuỗi khác!",
     "instruction2": "Đơn hàng được xác nhận tự động khi tiền đến",
-    "instruction3": "Bạn chịu phí mạng: phải nhận đúng <strong>{{amount}}</strong>, thiếu sẽ không được xác nhận tự động",
     "instruction4": "Có thắc mắc, vui lòng liên hệ hỗ trợ của người bán",
     "copied": "Đã sao chép",
     "copySuccess": "✓ Đã sao chép",
@@ -87,7 +86,7 @@
     "instructionExchange": "Dùng <strong>chuyển nội bộ</strong> trong ứng dụng sàn tới UID này (miễn phí). Không dùng rút tiền on-chain",
     "instructionExchangeBinance": "Binance → Ví → Rút → <strong>“Người dùng Binance / chuyển nội bộ”</strong> hoặc Binance Pay, người nhận là Binance ID (Pay ID) này. Không chọn rút on-chain",
     "instructionExchangeOkx": "OKX → Tài sản → Rút → <strong>“Chuyển nội bộ”</strong>, người nhận là UID này. Không chọn rút on-chain",
-    "amountCaption": "Bạn chịu phí mạng — đây là số tiền phải đến tài khoản người nhận",
-    "instructionFee": "Bạn chịu phí mạng: số tiền hiển thị là <strong>số tiền cần nhận</strong>. Phải có đúng <strong>{{amount}}</strong> đến tài khoản; nếu ví trừ phí từ số tiền gửi, hãy cộng thêm phí"
+    "amountCaption": "Bạn chịu phí mạng — đây là số tiền người bán phải nhận",
+    "instructionFee": "Bạn chịu phí mạng: số hiển thị là <strong>số tiền người bán nhận được</strong>. Nếu ví trừ phí từ số tiền gửi, hãy cộng thêm phí"
   }
 }

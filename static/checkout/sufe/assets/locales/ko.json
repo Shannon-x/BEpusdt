@@ -41,7 +41,6 @@
     "instruction1": "반드시 <strong>{{network}} 네트워크</strong>를 사용하고 {{warningToken}} 을(를) 잘못 보내지 마세요",
     "instruction1Native": "{{token}} 은(는) 반드시 <strong>{{network}} 네트워크</strong>로 보내세요. 다른 체인은 사용 불가",
     "instruction2": "입금되면 주문이 자동으로 확인됩니다",
-    "instruction3": "수수료는 보내는 분 부담입니다. 정확히 <strong>{{amount}}</strong> 가 입금되어야 하며 부족하면 자동 확인되지 않습니다",
     "instruction4": "문의 사항은 판매자 고객센터로 연락해 주세요",
     "copied": "복사됨",
     "copySuccess": "✓ 복사됨",
@@ -87,7 +86,7 @@
     "instructionExchange": "거래소 앱의 <strong>내부 이체</strong>로 이 UID 에 보내세요(수수료 없음). 온체인 출금은 사용하지 마세요",
     "instructionExchangeBinance": "Binance 앱 → 지갑 → 출금 → <strong>‘Binance 사용자 / 내부 이체’</strong> 또는 Binance Pay 에서 수취인에 이 Binance ID(Pay ID) 입력. 온체인 출금은 선택하지 마세요",
     "instructionExchangeOkx": "OKX 앱 → 자산 → 출금 → <strong>‘내부 이체’</strong>에서 수취인에 이 UID 입력. 온체인 출금은 선택하지 마세요",
-    "amountCaption": "네트워크 수수료는 보내는 분 부담이며, 이 금액이 실제로 입금되어야 합니다",
-    "instructionFee": "네트워크 수수료는 보내는 분 부담입니다. 표시된 금액은 <strong>입금 금액</strong>이며 정확히 <strong>{{amount}}</strong> 가 입금되어야 합니다. 지갑이 송금액에서 수수료를 차감하면 수수료만큼 더 보내 주세요"
+    "amountCaption": "네트워크 수수료는 보내는 분 부담이며, 이 금액이 판매자에게 입금되어야 합니다",
+    "instructionFee": "네트워크 수수료는 보내는 분 부담입니다: 표시된 금액은 <strong>판매자가 받는 금액</strong>입니다. 지갑이 송금액에서 수수료를 차감하면 그만큼 더 보내 주세요"
   }
 }

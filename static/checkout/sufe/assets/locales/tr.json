@@ -41,7 +41,6 @@
     "instruction1": "Yalnızca <strong>{{network}}</strong> ağını kullanın; yanlışlıkla {{warningToken}} göndermeyin!",
     "instruction1Native": "{{token}} yalnızca <strong>{{network}}</strong> ağı ile gönderilmeli; başka zincir kullanmayın!",
     "instruction2": "Tutar ulaştığında sipariş otomatik onaylanır",
-    "instruction3": "Ücreti siz ödersiniz: tam olarak <strong>{{amount}}</strong> ulaşmalı; eksik tutar otomatik onaylanmaz",
     "instruction4": "Sorularınız için satıcı desteğiyle iletişime geçin",
     "copied": "Kopyalandı",
     "copySuccess": "✓ Kopyalandı",
@@ -87,7 +86,7 @@
     "instructionExchange": "Borsa uygulamasında bu UID’ye <strong>dahili transfer</strong> kullanın (ücretsiz). Zincir üstü çekim kullanmayın",
     "instructionExchangeBinance": "Binance → Cüzdan → Çek → <strong>“Binance kullanıcısı / dahili transfer”</strong> veya Binance Pay, alıcı = bu Binance ID (Pay ID). Zincir üstü çekimi seçmeyin",
     "instructionExchangeOkx": "OKX → Varlıklar → Çek → <strong>“Dahili transfer”</strong>, alıcı = bu UID. Zincir üstü çekimi seçmeyin",
-    "amountCaption": "Ağ ücretini siz ödersiniz — alıcıya ulaşması gereken tutar budur",
-    "instructionFee": "Ağ ücretini siz ödersiniz: gösterilen tutar <strong>alınacak tutardır</strong>. Hesaba tam olarak <strong>{{amount}}</strong> ulaşmalı; cüzdanınız ücreti gönderim tutarından düşüyorsa ücreti ekleyin"
+    "amountCaption": "Ağ ücretini siz ödersiniz — bu tutar satıcıya ulaşmalıdır",
+    "instructionFee": "Ağ ücretini siz ödersiniz: gösterilen tutar <strong>satıcının alacağı tutardır</strong>. Cüzdanınız ücreti gönderim tutarından düşüyorsa ücreti ekleyin"
   }
 }
