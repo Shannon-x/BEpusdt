@@ -78,4 +78,18 @@ func TestSufeLocalesHaveNoAmountPlaceholder(t *testing.T) {
 	if !strings.Contains(string(view), `id="supportBtn"`) || !strings.Contains(string(view), "rel=\"noopener\" hidden") {
 		t.Fatal("support button must default to hidden")
 	}
+
+	// 二维码中心只放一个币种图标：叠加网络小徽标在小圆里会错位重叠
+	if strings.Contains(string(view), "qrNetworkLogo") || strings.Contains(string(view), "qr-logo-stack") {
+		t.Fatal("QR badge must contain a single token icon")
+	}
+	badge := string(view)
+	start := strings.Index(badge, `id="qrLogoBadge"`)
+	if start < 0 {
+		t.Fatal("QR badge markup not found")
+	}
+	end := strings.Index(badge[start:], "</div>")
+	if end < 0 || strings.Count(badge[start:start+end], "<img") != 1 {
+		t.Fatal("QR badge must hold exactly one image")
+	}
 }

@@ -909,7 +909,7 @@
             hide(dom.qrLogoBadge);
         } else {
             if (dom.qrCodeBox) show(dom.qrCodeBox);
-            renderQrLogo(ctx.token, ctx.networkId);
+            renderQrLogo(ctx.token);
             renderQr(data.token || '');
         }
 
@@ -949,24 +949,18 @@
         append(address.slice(-6), true);
     }
 
-    function renderQrLogo(currency, networkId) {
+    /* 二维码中心只放币种图标：网络信息在上方标签和下方「收款地址（X 网络）」已写明，
+       再叠一个网络小徽标既拥挤又容易错位 */
+    function renderQrLogo(currency) {
         if (!dom.qrLogoBadge || !dom.qrTokenLogo) return;
 
         hide(dom.qrLogoBadge);
-        hide(dom.qrNetworkLogo);
         dom.qrTokenLogo.removeAttribute('src');
-        if (dom.qrNetworkLogo) dom.qrNetworkLogo.removeAttribute('src');
-
         if (!currency) return;
 
         dom.qrTokenLogo.onload = function () { show(dom.qrLogoBadge); };
         dom.qrTokenLogo.onerror = function () { hide(dom.qrLogoBadge); };
         dom.qrTokenLogo.src = tokenIcon(currency);
-
-        if (!networkId || !dom.qrNetworkLogo) return;
-        dom.qrNetworkLogo.onload = function () { show(dom.qrNetworkLogo); };
-        dom.qrNetworkLogo.onerror = function () { hide(dom.qrNetworkLogo); };
-        dom.qrNetworkLogo.src = networkIcon(networkId);
     }
 
     /* 二维码按容器实际像素 1:1 绘制，缩放不失真；暖黑 / 米白配色（对比度 ≈ 16:1） */
@@ -1460,7 +1454,6 @@
         dom.qrcode = $id('qrcode');
         dom.qrLogoBadge = $id('qrLogoBadge');
         dom.qrTokenLogo = $id('qrTokenLogo');
-        dom.qrNetworkLogo = $id('qrNetworkLogo');
         dom.addressLabel = $id('addressLabel');
         dom.walletAddress = $id('walletAddress');
         dom.copyAddressBtn = $id('copyAddressBtn');

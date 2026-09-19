@@ -1106,14 +1106,7 @@ body {
 
 .qr-logo-badge[hidden] { display: none; }
 
-/* 币种大图标居中，网络小徽标固定在右下角、带白边分隔，二者不会重叠 */
-.qr-logo-stack {
-    position: relative;
-    display: block;
-    width: 28px;
-    height: 28px;
-}
-
+/* 中心只有币种图标，居中即可 */
 .qr-token-logo {
     display: block;
     width: 28px;
@@ -1121,21 +1114,6 @@ body {
     object-fit: contain;
 }
 
-.qr-network-logo {
-    position: absolute;
-    right: -9px;
-    bottom: -9px;
-    width: 18px;
-    height: 18px;
-    padding: 1px;
-    border-radius: var(--radius-pill);
-    background: var(--warm-white);
-    border: 2px solid var(--warm-white);
-    box-shadow: 0 0 0 1px var(--hairline);
-    object-fit: contain;
-}
-
-.qr-network-logo[hidden],
 .qr-token-logo[hidden] { display: none; }
 
 /* 到账数额说明与转账须知重点条 */
