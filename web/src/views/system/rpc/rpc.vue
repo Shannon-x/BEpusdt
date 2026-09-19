@@ -128,7 +128,7 @@
                   >
                     <a-input
                       v-model="formData.rpc_endpoint_tron"
-                      placeholder="请输入 Tron RPC"
+                      placeholder="请输入 Tron gRPC 节点，多个用英文逗号分隔，失败自动切换"
                       allow-clear
                       size="small"
                       class="network-input tron-input"
@@ -202,7 +202,7 @@
                   >
                     <a-input
                       v-model="formData[network.key]"
-                      :placeholder="`请输入 ${network.label}`"
+                      :placeholder="`请输入 ${network.label}，多个节点用英文逗号分隔，失败自动切换`"
                       allow-clear
                       size="small"
                       class="network-input"

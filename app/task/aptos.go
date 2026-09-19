@@ -12,6 +12,7 @@ import (
 
 	"github.com/panjf2000/ants/v2"
 	"github.com/shopspring/decimal"
+	"github.com/sirupsen/logrus"
 	"github.com/smallnest/chanx"
 	"github.com/spf13/cast"
 	"github.com/tidwall/gjson"
@@ -26,14 +27,23 @@ type aptos struct {
 	versionChunkSize       int
 	versionConfirmedOffset int
 	lastVersion            int
-	versionQueue           *chanx.UnboundedChan[version]
+	versionQueue           *chanx.UnboundedChan[version] // 实时，高优先级
+	lookbackQueue          *chanx.UnboundedChan[version] // 回溯 / 回放，低优先级
 	client                 *http.Client
+	rpc                    endpointPicker
 }
 
+// version 待扫描的交易版本区间、已失败次数、来源队列及所属持久化任务
 type version struct {
-	Start int
-	Limit int
+	Start    int
+	Limit    int
+	Attempt  int
+	Lookback bool
+	JobID    int64
 }
+
+// aptosHeightTolerance Aptos 版本号增长很快，链头跳跃容忍度使用独立的更大值
+const aptosHeightTolerance = 10000
 
 var apt aptos
 
@@ -55,6 +65,7 @@ func init() {
 	Register(Task{Callback: apt.syncVersionForward, Duration: time.Second * 3})
 	Register(Task{Callback: apt.tradeConfirmHandle, Duration: time.Second * 5})
 	Register(Task{Callback: apt.lookbackVersion, Duration: time.Second * 15})
+	registerScanner(conf.Aptos, apt.status, apt.replay)
 }
 
 func newAptos() aptos {
@@ -63,8 +74,49 @@ func newAptos() aptos {
 		versionConfirmedOffset: 1000,
 		lastVersion:            0,
 		versionQueue:           chanx.NewUnboundedChan[version](context.Background(), 30),
+		lookbackQueue:          chanx.NewUnboundedChan[version](context.Background(), 30),
 		client:                 utils.NewHttpClient(),
+		rpc:                    endpointPicker{network: conf.Aptos},
 	}
+}
+
+// apiUrl 拼接 REST 路径，兼容配置末尾有无斜杠
+func aptosApiUrl(endpoint, path string) string {
+	return strings.TrimRight(endpoint, "/") + "/" + strings.TrimLeft(path, "/")
+}
+
+func (a *aptos) queueFor(p version) *chanx.UnboundedChan[version] {
+	if p.Lookback {
+		return a.lookbackQueue
+	}
+
+	return a.versionQueue
+}
+
+func (a *aptos) status() ScanStatus {
+	return ScanStatus{
+		Network:       conf.Aptos,
+		HeadHeight:    int64(a.lastVersion),
+		RealtimeQueue: a.versionQueue.Len(),
+		LookbackQueue: a.lookbackQueue.Len(),
+		Endpoint:      a.rpc.current(),
+		Endpoints:     a.rpc.list(),
+	}
+}
+
+// replay 回放 / 任务重试版本区间，按 chunk 切分进入低优先级队列
+func (a *aptos) replay(from, to, jobID int64) int {
+	n := 0
+	for i := int(from); i <= int(to); i += a.versionChunkSize {
+		limit := a.versionChunkSize
+		if i+limit-1 > int(to) {
+			limit = int(to) - i + 1
+		}
+		a.lookbackQueue.In <- version{Start: i, Limit: limit, Lookback: true, JobID: jobID}
+		n++
+	}
+
+	return n
 }
 
 func (a *aptos) syncVersionForward(ctx context.Context) {
@@ -73,39 +125,54 @@ func (a *aptos) syncVersionForward(ctx context.Context) {
 		return
 	}
 
-	req, _ := http.NewRequestWithContext(ctx, "GET", model.Endpoint(conf.Aptos)+"/v1", nil)
+	endpoint := a.rpc.current()
+	entry := scanLogger(conf.Aptos, endpoint, "ledger_info", nil)
+	req, _ := http.NewRequestWithContext(ctx, "GET", aptosApiUrl(endpoint, "v1"), nil)
 	resp, err := a.client.Do(req)
 	if err != nil {
-		log.Task.Warn("aptos syncVersionForward Error sending request:", err)
+		entry.WithField("error", err.Error()).Warn("aptos syncVersionForward request error")
+		a.rpc.failed(endpoint)
 
 		return
 	}
 
 	defer resp.Body.Close()
 
-	if resp.StatusCode != 200 {
-		log.Task.Warn("aptos syncVersionForward Error response status code:", resp.StatusCode)
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		entry.WithField("error", err.Error()).Warn("aptos syncVersionForward read body error")
+		a.rpc.failed(endpoint)
 
 		return
 	}
 
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		log.Task.Warn("aptos syncVersionForward Error reading response body:", err)
+	if resp.StatusCode != 200 {
+		entry.WithFields(logrus.Fields{"http_status": resp.StatusCode, "body": bodySnippet(body)}).Warn("aptos syncVersionForward http status error")
+		a.rpc.failed(endpoint)
 
 		return
 	}
 
 	now := int(gjson.GetBytes(body, "ledger_version").Int())
 	if now <= 0 {
-		log.Task.Warn("syncVersionForward Error: invalid ledger_version:", now)
+		entry.WithField("body", bodySnippet(body)).Warn("aptos syncVersionForward invalid ledger_version")
+		a.rpc.failed(endpoint)
 
 		return
 	}
 
-	if now-a.lastVersion > 10000 {
-		a.lastVersion = now - a.versionChunkSize
+	// lastVersion 是下一个待扫描版本；resumeFrom 以"最后已发出"语义工作，故 -1 / +1 换算
+	last := int64(a.lastVersion) - 1
+	if a.lastVersion == 0 {
+		last = 0
 	}
+	a.lastVersion = int(resumeFrom(conf.Aptos, last, int64(now), aptosHeightTolerance)) + 1
+	if a.lastVersion >= now {
+
+		return
+	}
+
+	cursorOf(conf.Aptos).issue(int64(a.lastVersion), int64(now)-1)
 
 	var sub = now - a.lastVersion
 	if sub <= a.versionChunkSize {
@@ -130,32 +197,39 @@ func (a *aptos) syncVersionForward(ctx context.Context) {
 }
 
 func (a *aptos) lookbackVersion(ctx context.Context) {
-	if syncBreak(conf.Aptos, a.versionQueue.Len()) {
+	if a.lookbackQueue.Len() >= blockQueueLimit || !scanRequired(conf.Aptos) {
 		return
 	}
 
-	startAt, endAt, ok := getLookbackUnix(conf.Aptos)
+	startAt, endAt, ok := beginLookback(conf.Aptos)
 	if !ok {
 		return
 	}
 
 	start, end := blockapi.New().GetBoundaryHeights(startAt, endAt, conf.Aptos)
+	if start <= 0 || end < start {
+		log.Task.Warn(fmt.Sprintf("Aptos 回溯版本范围无效: start=%d end=%d", start, end))
+		lookbackTrack.abort(conf.Aptos)
+
+		return
+	}
+
 	for i := int(start); i <= int(end); i += a.versionChunkSize {
-		select {
-		case <-ctx.Done():
-			return
-		default:
-		}
-		if syncBreak(conf.Aptos, a.versionQueue.Len()) {
+		if !waitQueueRoom(ctx, a.lookbackQueue) {
+			lookbackTrack.abort(conf.Aptos)
+
 			return
 		}
 		limit := a.versionChunkSize
 		if i+limit > int(end) {
 			limit = int(end) - i + 1
 		}
-		a.versionQueue.In <- version{Start: i, Limit: limit}
+		lookbackTrack.track(conf.Aptos, int64(i))
+		a.lookbackQueue.In <- version{Start: i, Limit: limit, Lookback: true}
 		time.Sleep(time.Millisecond * 200) // 速率控制
 	}
+
+	lookbackTrack.sealed(conf.Aptos)
 }
 
 func (a *aptos) versionDispatch(ctx context.Context) {
@@ -169,18 +243,14 @@ func (a *aptos) versionDispatch(ctx context.Context) {
 	defer p.Release()
 
 	for {
-		select {
-		case n := <-a.versionQueue.Out:
-			if err := p.Invoke(n); err != nil {
-				a.versionQueue.In <- n
-				log.Task.Warn("versionDispatch Error invoking process slot:", err)
-			}
-		case <-ctx.Done():
-			if err := ctx.Err(); err != nil {
-				log.Task.Warn("versionDispatch context done:", err)
-			}
-
+		job, ok := takeJob(ctx, a.versionQueue, a.lookbackQueue)
+		if !ok {
 			return
+		}
+
+		if err := p.Invoke(job); err != nil {
+			a.queueFor(job).In <- job
+			log.Task.Warn("versionDispatch Error invoking process slot:", err)
 		}
 	}
 }
@@ -191,38 +261,65 @@ func (a *aptos) versionParse(n any) {
 	p := n.(version)
 
 	var net = conf.Aptos
-	var url = fmt.Sprintf("%sv1/transactions?start=%d&limit=%d", model.Endpoint(conf.Aptos), p.Start, p.Limit)
+	var endpoint = a.rpc.current()
+	var url = aptosApiUrl(endpoint, fmt.Sprintf("v1/transactions?start=%d&limit=%d", p.Start, p.Limit))
 
-	conf.RecordSuccess(net, cast.ToString(p.Start+p.Limit))
-	resp, err := a.client.Get(url)
-	if err != nil {
+	entry := scanLogger(net, endpoint, "transactions", logrus.Fields{
+		"start":        p.Start,
+		"limit":        p.Limit,
+		"attempt":      p.Attempt,
+		"lookback":     p.Lookback,
+		"queue_length": a.queueFor(p).Len(),
+	})
+
+	// 任何失败路径都切换节点并退避重试，成功计数放在解析完成之后
+	fail := func(reason string, fields logrus.Fields) {
 		conf.RecordFailure(net)
-		log.Task.Warn("versionParse Error sending request:", err)
+		a.rpc.failed(endpoint)
+		p.Attempt++
+		if delay, ok := scanRetryLater(a.queueFor(p), p, p.Attempt); ok {
+			entry.WithFields(fields).WithField("next_retry_in", delay.Round(time.Millisecond).String()).Warn("version scan failed, will retry: " + reason)
+
+			return
+		}
+
+		scanAbandon(net, int64(p.Start), int64(p.Start+p.Limit-1), p.JobID, reason, entry.WithFields(fields))
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), scanRequestTimeout)
+	defer cancel()
+
+	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
+	if err != nil {
+		fail("create request error", logrus.Fields{"error": err.Error()})
+
+		return
+	}
+
+	resp, err := a.client.Do(req)
+	if err != nil {
+		fail("http request error", logrus.Fields{"error": err.Error()})
 
 		return
 	}
 
 	defer resp.Body.Close()
-	if resp.StatusCode != 200 {
-		conf.RecordFailure(net)
-		log.Task.Warn("versionParse Error response status code:", resp.StatusCode)
-
-		return
-	}
 
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
-		conf.RecordFailure(net)
-		a.versionQueue.In <- p
-		log.Task.Warn("versionParse Error reading response body:", err)
+		fail("read response body error", logrus.Fields{"http_status": resp.StatusCode, "error": err.Error()})
 
 		return
 	}
 
-	if !gjson.ValidBytes(body) {
-		conf.RecordFailure(net)
-		a.versionQueue.In <- p
-		log.Task.Warn("versionParse Error: invalid JSON response body")
+	if resp.StatusCode != 200 {
+		fail("http status error", logrus.Fields{"http_status": resp.StatusCode, "body": bodySnippet(body)})
+
+		return
+	}
+
+	if !gjson.ValidBytes(body) || !gjson.ParseBytes(body).IsArray() {
+		fail("invalid json response", logrus.Fields{"body": bodySnippet(body)})
 
 		return
 	}
@@ -378,6 +475,15 @@ func (a *aptos) versionParse(n any) {
 		transferQueue.In <- transfers
 	}
 
+	conf.RecordSuccess(net, cast.ToString(p.Start+p.Limit))
+	lookbackTrack.done(net, int64(p.Start), true)
+	if !p.Lookback {
+		cursorOf(net).complete(int64(p.Start), int64(p.Start+p.Limit-1))
+	}
+	if p.JobID != 0 {
+		scanJobPartDone(p.JobID)
+	}
+
 	log.Task.Info(fmt.Sprintf("区块扫描完成(Aptos) %d.%d 成功率：%s", p.Start, p.Limit, conf.GetSuccessRate(net)))
 }
 
@@ -402,10 +508,12 @@ func (a *aptos) tradeConfirmHandle(ctx context.Context) {
 			}
 		}
 
-		req, _ := http.NewRequestWithContext(ctx, "GET", model.Endpoint(conf.Aptos)+"v1/transactions/by_hash/"+o.RefHash, nil)
+		endpoint := a.rpc.current()
+		req, _ := http.NewRequestWithContext(ctx, "GET", aptosApiUrl(endpoint, "v1/transactions/by_hash/"+o.RefHash), nil)
 		resp, err := a.client.Do(req)
 		if err != nil {
 			log.Task.Warn("aptos tradeConfirmHandle Error sending request:", err)
+			a.rpc.failed(endpoint)
 
 			return
 		}
@@ -414,6 +522,7 @@ func (a *aptos) tradeConfirmHandle(ctx context.Context) {
 
 		if resp.StatusCode != 200 {
 			log.Task.Warn("aptos tradeConfirmHandle Error response status code:", resp.StatusCode)
+			a.rpc.failed(endpoint)
 
 			return
 		}

@@ -56,4 +56,12 @@ func adminInit(e *gin.Engine) {
 	{
 		PostRegister(dashboardRtr, "/home", true, dashboardHdr.Home)
 	}
+
+	var scanRtr = e.Group("/api/scan")
+	var scanHdr = new(admin.Scan)
+	{
+		GetRegister(scanRtr, "/status", true, scanHdr.Status)
+		PostRegister(scanRtr, "/replay", true, scanHdr.Replay)
+		PostRegister(scanRtr, "/jobs", true, scanHdr.Jobs)
+	}
 }

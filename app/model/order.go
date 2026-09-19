@@ -348,6 +348,13 @@ func GetTradeOrder(tradeId string) (Order, bool) {
 	return order, res.RowsAffected > 0
 }
 
+func GetOrderByID(id int64) (Order, bool) {
+	var order Order
+	res := Db.Where("id = ?", id).Limit(1).Find(&order)
+
+	return order, res.Error == nil && res.RowsAffected > 0
+}
+
 func GetOrderByStatus(Status int) []Order {
 	orders := make([]Order, 0)
 

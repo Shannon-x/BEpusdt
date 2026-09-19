@@ -1,34 +1,16 @@
 package task
 
 import (
-	"context"
 	"time"
 
-	"github.com/smallnest/chanx"
 	"github.com/v03413/bepusdt/app/conf"
 	"github.com/v03413/bepusdt/app/model"
-	"github.com/v03413/bepusdt/app/utils"
 )
 
 func ethInit() {
-	ctx := context.Background()
-	eth := evm{
-		Network:          conf.Ethereum,
-		LookbackInterval: time.Second * 2,
-		Block: block{
-			ConfirmedOffset: 12,
-		},
-		Native: evmNative{
-			Parse:     true,
-			TradeType: model.EthereumEth,
-			Decimal:   conf.EthereumEthDecimals,
-		},
-		Client:         utils.NewHttpClient(),
-		blockScanQueue: chanx.NewUnboundedChan[evmBlock](ctx, 30),
-	}
-
-	Register(Task{Callback: eth.blockDispatch})
-	Register(Task{Callback: eth.syncBlocksForward, Duration: time.Second * 12})
-	Register(Task{Callback: eth.tradeConfirmHandle, Duration: time.Second * 5})
-	Register(Task{Callback: eth.lookbackBlocks, Duration: time.Second * 20})
+	registerEvm(
+		newEvm(conf.Ethereum, block{ConfirmedOffset: 12}, evmNative{Parse: true, Decimal: conf.EthereumEthDecimals, TradeType: model.EthereumEth}, time.Second*2),
+		time.Second*12, // 头部同步间隔
+		time.Second*20, // 订单回溯间隔
+	)
 }

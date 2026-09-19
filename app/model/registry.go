@@ -3,6 +3,7 @@ package model
 import (
 	"fmt"
 	"strings"
+	"unicode"
 
 	"github.com/shopspring/decimal"
 	"github.com/v03413/bepusdt/app/conf"
@@ -312,6 +313,9 @@ func init() {
 		if c.Contract != "" {
 			contractDecimalMap[c.Contract] = c.Decimal
 			contractTradeMap[c.Contract] = t
+			if !c.Native {
+				networkContractsMap[c.Network] = append(networkContractsMap[c.Network], c.Contract)
+			}
 		}
 		if c.AmountRange != (Range{}) {
 			tradeAmountRangeMap[t] = c.AmountRange
@@ -365,6 +369,16 @@ func GetNetworkTrades(n Network) []TradeType {
 	list, ok := networkTradesMap[n]
 	if !ok {
 		return []TradeType{}
+	}
+
+	return list
+}
+
+// GetNetworkContracts 返回网络上启用的所有代币合约地址，用于 eth_getLogs 等按合约过滤的请求
+func GetNetworkContracts(n Network) []string {
+	list, ok := networkContractsMap[n]
+	if !ok {
+		return []string{}
 	}
 
 	return list
@@ -426,11 +440,39 @@ func IsAmountValid(t TradeType, d decimal.Decimal) bool {
 	return true
 }
 
-func Endpoint(net Network) string {
-	if endpointKey, ok := networkEndpointMap[net]; ok {
-		return GetC(endpointKey)
+// SplitEndpoints 解析节点配置：多个节点用英文逗号或空白（含换行）分隔，去重、保序
+func SplitEndpoints(raw string) []string {
+	fields := strings.FieldsFunc(raw, func(r rune) bool { return r == ',' || unicode.IsSpace(r) })
+	out := make([]string, 0, len(fields))
+	seen := make(map[string]struct{}, len(fields))
+	for _, f := range fields {
+		if _, dup := seen[f]; dup {
+			continue
+		}
+		seen[f] = struct{}{}
+		out = append(out, f)
 	}
-	return ""
+
+	return out
+}
+
+// Endpoints 返回网络配置的全部 RPC 节点，首个为主节点，其余为备用；扫描失败时自动切换
+func Endpoints(net Network) []string {
+	if endpointKey, ok := networkEndpointMap[net]; ok {
+		return SplitEndpoints(GetC(endpointKey))
+	}
+
+	return []string{}
+}
+
+// Endpoint 返回网络的主 RPC 节点
+func Endpoint(net Network) string {
+	list := Endpoints(net)
+	if len(list) == 0 {
+		return ""
+	}
+
+	return list[0]
 }
 
 func GetTradeAtomKey(t TradeType) (ConfKey, bool) {

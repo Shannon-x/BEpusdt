@@ -126,6 +126,10 @@ func AutoMigrate() error {
 		&NotifyRecord{},
 		&Conf{},
 		&Rate{},
+		&ScanCursor{},
+		&ScanJob{},
+		&ChainTransfer{},
+		&NotifyOutbox{},
 	})
 }
 

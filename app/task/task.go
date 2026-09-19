@@ -2,9 +2,11 @@ package task
 
 import (
 	"context"
+	"fmt"
 	"sync"
 	"time"
 
+	"github.com/v03413/bepusdt/app/log"
 	"github.com/v03413/bepusdt/app/model"
 )
 
@@ -25,6 +27,11 @@ var (
 
 func Init() error {
 	model.RefreshC()
+
+	// 上次进程异常退出时遗留的执行中任务重新排队
+	if n := model.ResetStaleScanJobs(model.ScanJobStaleAfter); n > 0 {
+		log.Task.Warn(fmt.Sprintf("重置 %d 个上次未完成的扫描任务", n))
+	}
 
 	bscInit()
 	ethInit()

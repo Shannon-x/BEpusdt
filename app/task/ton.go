@@ -70,7 +70,7 @@ func (t *ton) syncMBSeqnoForward(ctx context.Context) {
 			continue
 		}
 
-		// 初始化：首次获取当前最新高度作为起点
+		// 初始化：优先从持久化游标续扫，否则以当前最新高度作为起点
 		if t.lastBlockSeqno == 0 {
 			mb, err := t.client().CurrentMasterchainInfo(ctx)
 			if err != nil {
@@ -79,7 +79,7 @@ func (t *ton) syncMBSeqnoForward(ctx context.Context) {
 				continue
 			}
 
-			t.lastBlockSeqno = mb.SeqNo - 1
+			t.lastBlockSeqno = uint32(resumeFrom(conf.Ton, 0, int64(mb.SeqNo), blockHeightTolerance()))
 		}
 
 		nextSeqno := t.lastBlockSeqno + 1
@@ -98,10 +98,13 @@ func (t *ton) syncMBSeqnoForward(ctx context.Context) {
 
 		now := mb.SeqNo
 
-		// 区块高度变化过大，强制丢块重扫
-		if now-t.lastBlockSeqno > cast.ToUint32(model.GetC(model.BlockHeightMaxDiff)) {
-			t.lastBlockSeqno = now - 1
+		// 链头跳跃超出容忍度时记录 gap 任务后对齐链头
+		t.lastBlockSeqno = uint32(resumeFrom(conf.Ton, int64(t.lastBlockSeqno), int64(now), blockHeightTolerance()))
+		if now <= t.lastBlockSeqno {
+			continue
 		}
+
+		cursorOf(conf.Ton).issue(int64(t.lastBlockSeqno)+1, int64(now))
 
 		// 待扫描区块入列
 		for n := t.lastBlockSeqno + 1; n <= now; n++ {
@@ -188,6 +191,7 @@ func (t *ton) blockParse(parent context.Context, seqno uint32) error {
 	}
 
 	conf.RecordSuccess(conf.Ton, cast.ToString(seqno))
+	cursorOf(conf.Ton).complete(int64(seqno), int64(seqno))
 	log.Task.Info(fmt.Sprintf("区块扫描完成(Ton): %d 成功率：%s", seqno, conf.GetSuccessRate(conf.Ton)))
 
 	return nil

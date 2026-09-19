@@ -26,6 +26,10 @@ func (Wechat) Welcome() {
 
 }
 
+func (Wechat) Alert(title, text string) {
+
+}
+
 func (Wechat) Test() error {
 	return nil
 }

@@ -16,6 +16,7 @@ type TronTransfer struct {
 	Timestamp   time.Time
 	TradeType   TradeType
 	BlockNum    int
+	Index       int // 交易内事件序号
 }
 
 type TronResource struct {

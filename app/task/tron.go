@@ -13,6 +13,7 @@ import (
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/panjf2000/ants/v2"
 	"github.com/shopspring/decimal"
+	"github.com/sirupsen/logrus"
 	"github.com/smallnest/chanx"
 	"github.com/spf13/cast"
 	"github.com/v03413/bepusdt/app/conf"
@@ -41,6 +42,9 @@ type tron struct {
 	retryMu              sync.Mutex
 	retryAttempts        map[int]int
 	retryScheduled       map[int]*time.Timer
+	rpc                  endpointPicker
+	jobMu                sync.Mutex
+	jobOf                map[int]int64 // 回放/任务重试的区块 → 任务 ID
 }
 
 var tr tron
@@ -51,6 +55,52 @@ func init() {
 	Register(Task{Duration: time.Second * 3, Callback: tr.syncBlocksForward})
 	Register(Task{Duration: time.Second * 5, Callback: tr.tradeConfirmHandle})
 	Register(Task{Duration: time.Second * 15, Callback: tr.lookbackBlocks})
+	registerScanner(conf.Tron, tr.status, tr.replay)
+}
+
+func (t *tron) status() ScanStatus {
+	return ScanStatus{
+		Network:       conf.Tron,
+		HeadHeight:    int64(t.lastBlockNum),
+		RealtimeQueue: t.blockScanQueue.Len(),
+		Endpoint:      t.rpc.current(),
+		Endpoints:     t.rpc.list(),
+	}
+}
+
+// replay 回放 / 任务重试；Tron 走带独立退避重试的单队列，用 jobOf 记录区块所属任务
+func (t *tron) replay(from, to, jobID int64) int {
+	n := 0
+	t.jobMu.Lock()
+	for i := from; i <= to; i++ {
+		if jobID != 0 {
+			t.jobOf[int(i)] = jobID
+		}
+		n++
+	}
+	t.jobMu.Unlock()
+
+	for i := from; i <= to; i++ {
+		t.blockScanQueue.In <- int(i)
+	}
+
+	return n
+}
+
+// blockDone 成功收尾：连续游标推进（仅实时发出的区块会被计入）、任务进度
+func (t *tron) blockDone(num int) {
+	cursorOf(conf.Tron).complete(int64(num), int64(num))
+
+	t.jobMu.Lock()
+	jobID, ok := t.jobOf[num]
+	if ok {
+		delete(t.jobOf, num)
+	}
+	t.jobMu.Unlock()
+
+	if ok {
+		scanJobPartDone(jobID)
+	}
 }
 
 func newTron() tron {
@@ -61,6 +111,8 @@ func newTron() tron {
 		conn:                 make(map[string]*grpc.ClientConn),
 		retryAttempts:        make(map[int]int),
 		retryScheduled:       make(map[int]*time.Timer),
+		rpc:                  endpointPicker{network: conf.Tron},
+		jobOf:                make(map[int]int64),
 	}
 }
 
@@ -71,9 +123,11 @@ func (t *tron) syncBlocksForward(context.Context) {
 		return
 	}
 
+	endpoint := t.rpc.current()
 	conn, err := t.client()
 	if err != nil {
 		log.Task.Error("grpc.NewClient", err)
+		t.rpc.failed(endpoint)
 
 		return
 	}
@@ -84,22 +138,23 @@ func (t *tron) syncBlocksForward(context.Context) {
 
 	if err1 != nil {
 		log.Task.Warn("GetNowBlock2 超时：", err1)
+		t.rpc.failed(endpoint)
 
 		return
 	}
 
 	var now = int(block.BlockHeader.RawData.Number)
 
-	// 区块高度变化过大，强制丢块重扫
-	if now-t.lastBlockNum > cast.ToInt(model.GetC(model.BlockHeightMaxDiff)) {
-		t.lastBlockNum = now - 1
-	}
+	// 启动时从持久化游标续扫；链头跳跃超出容忍度时记录 gap 任务后对齐链头
+	t.lastBlockNum = int(resumeFrom(conf.Tron, int64(t.lastBlockNum), int64(now), blockHeightTolerance()))
 
 	// 区块高度没有变化
-	if now == t.lastBlockNum {
+	if now <= t.lastBlockNum {
 
 		return
 	}
+
+	cursorOf(conf.Tron).issue(int64(t.lastBlockNum)+1, int64(now))
 
 	// 待扫描区块入列
 	for n := t.lastBlockNum + 1; n <= now; n++ {
@@ -115,24 +170,38 @@ func (t *tron) lookbackBlocks(ctx context.Context) {
 		return
 	}
 
-	startAt, endAt, ok := getLookbackUnix(conf.Tron)
+	startAt, endAt, ok := beginLookback(conf.Tron)
 	if !ok {
 		return
 	}
 
 	start, end := blockapi.New().GetBoundaryHeights(startAt, endAt, conf.Tron)
+	if start <= 0 || end < start {
+		log.Task.Warn(fmt.Sprintf("Tron 回溯高度范围无效: start=%d end=%d", start, end))
+		lookbackTrack.abort(conf.Tron)
+
+		return
+	}
+
 	for i := int(start); i <= int(end); i++ {
 		select {
 		case <-ctx.Done():
+			lookbackTrack.abort(conf.Tron)
+
 			return
 		default:
 		}
 		if t.syncBreak() {
+			lookbackTrack.abort(conf.Tron)
+
 			return
 		}
+		lookbackTrack.track(conf.Tron, int64(i))
 		t.blockScanQueue.In <- i
 		time.Sleep(time.Millisecond * 250) // 速率控制
 	}
+
+	lookbackTrack.sealed(conf.Tron)
 }
 
 func (t *tron) blockDispatch(ctx context.Context) {
@@ -167,8 +236,12 @@ func (t *tron) blockParse(n any) {
 
 	var conn *grpc.ClientConn
 	var err error
+	var endpoint = t.rpc.current()
 	if conn, err = t.client(); err != nil {
 		log.Task.Error("grpc.NewClient", err)
+		conf.RecordFailure(conf.Tron)
+		t.rpc.failed(endpoint)
+		t.scheduleBlockRetry(num, 0)
 
 		return
 	}
@@ -178,14 +251,17 @@ func (t *tron) blockParse(n any) {
 	cancel()
 	if err2 != nil {
 		conf.RecordFailure(conf.Tron)
+		t.rpc.failed(endpoint)
 		t.scheduleBlockRetry(num, 0)
-		log.Task.Warn("GetBlockByNum2 ", err2)
+		scanLogger(conf.Tron, endpoint, "GetBlockByNum2", logrus.Fields{"block": num, "error": err2.Error()}).Warn("tron block scan failed, will retry")
 
 		return
 	}
 
 	conf.RecordSuccess(conf.Tron, cast.ToString(num))
 	t.resetBlockRetry(num)
+	lookbackTrack.done(conf.Tron, int64(num), true)
+	t.blockDone(num)
 
 	var resources = make([]resource, 0)
 	var transfers = make([]transfer, 0)
@@ -561,7 +637,7 @@ func tronRetryDelay(attempt int) time.Duration {
 }
 
 func (t *tron) client() (*grpc.ClientConn, error) {
-	var endpoint = model.Endpoint(conf.Tron)
+	var endpoint = t.rpc.current()
 
 	t.connMu.RLock()
 	if c, ok := t.conn[endpoint]; ok {

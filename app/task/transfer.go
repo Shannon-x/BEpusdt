@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/shopspring/decimal"
@@ -14,6 +13,7 @@ import (
 	"github.com/v03413/bepusdt/app/model"
 	"github.com/v03413/bepusdt/app/notifier"
 	"github.com/v03413/bepusdt/app/task/notify"
+	"github.com/v03413/go-cache"
 	"github.com/v03413/tronprotocol/core"
 )
 
@@ -26,6 +26,7 @@ type transfer struct {
 	Timestamp   time.Time       `json:"timestamp"`
 	TradeType   model.TradeType `json:"trade_type"`
 	BlockNum    int             `json:"block_num"`
+	Index       int             `json:"index"` // 交易内事件序号，与 network+tx_hash 构成流水唯一键
 }
 
 type resource struct {
@@ -42,16 +43,16 @@ var resourceQueue = chanx.NewUnboundedChan[[]resource](context.Background(), 30)
 var notOrderQueue = chanx.NewUnboundedChan[[]transfer](context.Background(), 30) // 非订单队列
 var transferQueue = chanx.NewUnboundedChan[[]transfer](context.Background(), 30) // 交易转账队列
 
-// lookbackDone 记录已触发过回溯的订单 ID，每个订单只回溯一次。
-var lookbackDone sync.Map // key: int64 order ID, value: struct{}
-
 const batchInterval = time.Second * 1       // 批处理缓解数据库读取压力
 const orderCheckInterval = time.Second * 10 // 订单过期检查间隔
+const reconcileInterval = time.Minute * 5   // 对账间隔
+const reconcileWindow = time.Hour * 48      // 对账回看窗口：覆盖商户允许重新打开订单的时长并留余量
 
 func init() {
 	Register(Task{Callback: orderTransferHandle})
 	Register(Task{Callback: notOrderTransferHandle})
 	Register(Task{Callback: tronResourceHandle})
+	Register(Task{Duration: reconcileInterval, Callback: reconcileTransfers})
 }
 
 func orderTransferHandle(ctx context.Context) {
@@ -84,47 +85,14 @@ func orderTransferHandle(ctx context.Context) {
 				continue
 			}
 
-			var other = make([]transfer, 0)
-			var orders = getReceivableOrders()
-
 			for _, t := range batch {
-				// 判断数额是否在允许范围内
-				if !model.IsAmountValid(t.TradeType, t.Amount) {
-					continue
-				}
-
 				mqttPublish(t)
-
-				key := fmt.Sprintf("%s%s", t.RecvAddress, t.TradeType)
-				orderList, ok := orders[key]
-				if !ok {
-					other = append(other, t)
-					continue
-				}
-
-				var matched bool
-				for i, o := range orderList {
-					if !orderTransferMatch(o, t) {
-						continue
-					}
-
-					// 订单匹配 进入确认流程
-					if err := o.MarkConfirming(t.BlockNum, t.FromAddress, t.TxHash, t.Timestamp, t.Amount); err != nil {
-						log.Task.Warn("mark order confirming failed:", err)
-						continue
-					}
-
-					// 从内存 map 中移除已匹配订单，防止同批次其他 transfer 重复匹配
-					orders[key] = append(orderList[:i], orderList[i+1:]...)
-					matched = true
-					break
-				}
-
-				if !matched {
-					other = append(other, t)
-				}
 			}
 
+			// 先把打到本系统钱包的入账落库，再匹配订单：匹配失败也不会丢，对账任务会重新认单
+			persistTransfers(batch)
+
+			other := matchTransfers(batch, getReceivableOrders())
 			if len(other) > 0 {
 				notOrderQueue.In <- other
 			}
@@ -135,6 +103,155 @@ func orderTransferHandle(ctx context.Context) {
 				expireWaitingOrders()
 			}
 		}
+	}
+}
+
+// matchTransfers 把一批转账与可收款订单匹配，匹配成功的订单进入确认流程并更新流水状态；返回未匹配的转账
+func matchTransfers(batch []transfer, orders map[string][]model.Order) []transfer {
+	var other = make([]transfer, 0)
+
+	for _, t := range batch {
+		// 判断数额是否在允许范围内
+		if !model.IsAmountValid(t.TradeType, t.Amount) {
+			continue
+		}
+
+		key := fmt.Sprintf("%s%s", t.RecvAddress, t.TradeType)
+		orderList, ok := orders[key]
+		if !ok {
+			other = append(other, t)
+			continue
+		}
+
+		var matched bool
+		for i, o := range orderList {
+			if !orderTransferMatch(o, t) {
+				continue
+			}
+
+			// 订单匹配 进入确认流程
+			if err := o.MarkConfirming(t.BlockNum, t.FromAddress, t.TxHash, t.Timestamp, t.Amount); err != nil {
+				log.Task.Warn("mark order confirming failed:", err)
+				continue
+			}
+
+			if err := model.MarkChainTransferMatched(t.Network, t.TxHash, t.Index, o.ID); err != nil {
+				log.Task.Warn("mark chain transfer matched failed:", err)
+			}
+
+			// 从内存 map 中移除已匹配订单，防止同批次其他 transfer 重复匹配
+			orders[key] = append(orderList[:i], orderList[i+1:]...)
+			matched = true
+			break
+		}
+
+		if !matched {
+			other = append(other, t)
+		}
+	}
+
+	return other
+}
+
+// persistTransfers 把收款地址属于本系统钱包的转账写入链上流水表（幂等）
+func persistTransfers(batch []transfer) {
+	addrs := walletAddressSet()
+	if len(addrs) == 0 {
+		return
+	}
+
+	rows := make([]model.ChainTransfer, 0)
+	seen := make(map[string]int) // 解析器未提供事件序号的链，同一交易内按出现顺序编号，保证唯一
+	for _, t := range batch {
+		if _, ok := addrs[t.RecvAddress]; !ok {
+			if _, ok := addrs[strings.ToLower(t.RecvAddress)]; !ok {
+				continue
+			}
+		}
+
+		index := t.Index
+		key := t.Network + t.TxHash
+		if index == 0 {
+			index = seen[key]
+		}
+		seen[key] = index + 1
+
+		rows = append(rows, model.ChainTransfer{
+			Network:     t.Network,
+			TxHash:      t.TxHash,
+			EventIndex:  index,
+			BlockNum:    int64(t.BlockNum),
+			FromAddress: t.FromAddress,
+			ToAddress:   t.RecvAddress,
+			TradeType:   t.TradeType,
+			Amount:      t.Amount.String(),
+			BlockTime:   t.Timestamp,
+			MatchStatus: model.ChainTransferUnmatched,
+		})
+	}
+
+	if err := model.SaveChainTransfers(rows); err != nil {
+		log.Task.Warn("save chain transfers failed:", err)
+	}
+}
+
+// walletAddressSet 全部钱包的地址与匹配地址（含小写形式），缓存 10 秒
+func walletAddressSet() map[string]struct{} {
+	const key = "wallet_address_set"
+	if v, ok := cache.Get(key); ok {
+		return v.(map[string]struct{})
+	}
+
+	var wallets []model.Wallet
+	model.Db.Select("address", "match_addr").Find(&wallets)
+
+	set := make(map[string]struct{}, len(wallets)*2)
+	for _, w := range wallets {
+		for _, a := range []string{w.Address, w.MatchAddr} {
+			if a == "" {
+				continue
+			}
+			set[a] = struct{}{}
+			set[strings.ToLower(a)] = struct{}{}
+		}
+	}
+	cache.Set(key, set, 10*time.Second)
+
+	return set
+}
+
+// reconcileTransfers 对账：把窗口内仍未匹配订单的入账重新跑一遍订单匹配（订单选择范围放宽到整个对账窗口）。
+// 覆盖两类情况：匹配时数据库暂时失败；订单先过期、随后补扫到过期前的付款（迟到支付恢复）。
+func reconcileTransfers(context.Context) {
+	rows := model.UnmatchedChainTransfers(time.Now().Add(-reconcileWindow), 500)
+	if len(rows) == 0 {
+		return
+	}
+
+	batch := make([]transfer, 0, len(rows))
+	for _, r := range rows {
+		amount, err := decimal.NewFromString(r.Amount)
+		if err != nil {
+			continue
+		}
+		batch = append(batch, transfer{
+			Network:     r.Network,
+			TxHash:      r.TxHash,
+			Amount:      amount,
+			FromAddress: r.FromAddress,
+			RecvAddress: r.ToAddress,
+			Timestamp:   r.BlockTime,
+			TradeType:   r.TradeType,
+			BlockNum:    int(r.BlockNum),
+			Index:       r.EventIndex,
+		})
+	}
+
+	other := matchTransfers(batch, receivableOrdersSince(time.Now().Add(-reconcileWindow)))
+	if matched := len(batch) - len(other); matched > 0 {
+		log.Task.Warn(fmt.Sprintf("对账补认单 %d 笔（此前匹配失败或迟到支付）", matched))
+		scanAlert("reconcile_matched", 10*time.Minute, "对账补认单",
+			fmt.Sprintf("对账任务为 %d 笔此前未匹配的入账补认了订单，订单已进入确认流程。\n如果经常出现，说明实时匹配阶段存在问题，请查看 task.log。", matched))
 	}
 }
 
@@ -254,8 +371,14 @@ func tronResourceHandle(ctx context.Context) {
 	}
 }
 
+// markFinalConfirmed 订单成功：状态与回调事件同一事务落库，随后立即尝试回调；失败由 outbox 重试
 func markFinalConfirmed(o model.Order) {
-	o.SetSuccess()
+	if err := o.SetSuccessWithNotify(); err != nil {
+		log.Task.Error(fmt.Sprintf("订单 %s 标记成功失败：%v", o.TradeId, err))
+
+		return
+	}
+
 	notifyOrderSuccess(o)
 }
 
@@ -264,9 +387,14 @@ func receivableOrderStatuses() []int {
 }
 
 func getReceivableOrders() map[string][]model.Order {
+	return receivableOrdersSince(time.Now().Add(model.GetLookbackHour()))
+}
+
+// receivableOrdersSince 过期时间晚于指定时刻的可收款订单（待支付 / 已过期 / 确认中），按 匹配地址+交易类型 分组
+func receivableOrdersSince(expiredAfter time.Time) map[string][]model.Order {
 	var orders []model.Order
 	db := model.Db.Where("status in (?)", receivableOrderStatuses()).
-		Where("expired_at > ?", time.Now().Add(model.GetLookbackHour())).
+		Where("expired_at > ?", expiredAfter).
 		Order("created_at asc")
 	db.Find(&orders)
 
@@ -293,13 +421,24 @@ func hasLookbackOrders(tradeType []model.TradeType) bool {
 	return count > 0
 }
 
-func getLookbackUnix(network model.Network) (startAt, endAt int64, ok bool) {
-	startAt, endAt, orderIDs, ok := pendingLookbackUnix(network)
-	if ok {
-		markLookbackDone(orderIDs)
+// beginLookback 计算待回溯订单的时间范围并开启回溯任务追踪。
+// 调用方需为每个入队区块调用 lookbackTrack.track，全部入队后调用 sealed，中断时调用 abort；
+// 区块扫描结束时调用 lookbackTrack.done。全部区块成功后订单才会被标记为已回溯。
+func beginLookback(network model.Network) (startAt, endAt int64, ok bool) {
+	if lookbackTrack.inflight(string(network)) {
+		return 0, 0, false
 	}
 
-	return startAt, endAt, ok
+	startAt, endAt, orderIDs, ok := pendingLookbackUnix(network)
+	if !ok {
+		return 0, 0, false
+	}
+
+	if !lookbackTrack.begin(string(network), orderIDs) {
+		return 0, 0, false
+	}
+
+	return startAt, endAt, true
 }
 
 func pendingLookbackUnix(network model.Network) (startAt, endAt int64, orderIDs []int64, ok bool) {
@@ -316,10 +455,10 @@ func pendingLookbackUnix(network model.Network) (startAt, endAt int64, orderIDs 
 		Order("created_at asc").
 		Find(&all)
 
-	// 过滤掉已经回溯过的订单
+	// 过滤掉已经回溯过或正在回溯的订单
 	pending := make([]model.Order, 0, len(all))
 	for _, o := range all {
-		if _, done := lookbackDone.Load(o.ID); !done {
+		if !lookbackTrack.skip(o.ID) {
 			pending = append(pending, o)
 		}
 	}
@@ -348,9 +487,7 @@ func pendingLookbackUnix(network model.Network) (startAt, endAt int64, orderIDs 
 }
 
 func markLookbackDone(orderIDs []int64) {
-	for _, orderID := range orderIDs {
-		lookbackDone.Store(orderID, struct{}{})
-	}
+	lookbackTrack.markDone(orderIDs)
 }
 
 func expireWaitingOrders() {

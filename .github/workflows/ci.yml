@@ -1,0 +1,71 @@
+name: ci
+# 持续集成：Go 静态检查 + 竞态测试、前端构建、PR 上的 Docker 构建（不推送）
+on:
+  push:
+    branches: [main]
+    paths-ignore:
+      - "docs/**"
+      - "**.md"
+  pull_request:
+    branches: [main]
+    types: [opened, synchronize, reopened, ready_for_review]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  go:
+    name: Go vet & race tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Vet
+        run: go vet ./...
+      - name: Test (race)
+        run: go test ./... -race -count=1
+
+  web:
+    name: Web build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "25"
+      - name: Install pnpm
+        run: npm install -g pnpm@10
+      - name: Install dependencies
+        working-directory: ./web
+        run: pnpm install --frozen-lockfile --shamefully-hoist
+      - name: Build
+        working-directory: ./web
+        run: pnpm run build:prod
+
+  docker:
+    name: Docker build (no push)
+    if: github.event_name == 'pull_request' && github.event.pull_request.draft == false
+    needs: [go]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: docker/setup-buildx-action@v3
+      - name: Build image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ./dockerfile
+          platforms: linux/amd64
+          push: false
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          build-args: |
+            VERSION=pr-${{ github.event.pull_request.number }}-${{ github.sha }}
+          tags: bepusdt:pr-${{ github.event.pull_request.number }}

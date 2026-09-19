@@ -497,8 +497,10 @@ POST /api/v1/epusdt/create
 | `payment_timeout`       | `1200`    | 订单默认超时时间（秒），范围 180~3600                       |
 | `rate_sync_interval`    | `3600`    | 汇率同步间隔（秒）                                     |
 | `atom_usdt`             | `0.01`    | USDT 最小原子精度（影响同地址冲突递增步长）                      |
-| `block_height_max_diff` | `1000`    | 区块高度跳跃容忍值，超过则强制重新对齐                           |
+| `block_height_max_diff` | `1000`    | 区块高度跳跃容忍值：运行中链头跳跃或重启后落后超过该值时对齐链头，跳过的区间记为 gap 任务 |
 | `block_offset_confirm`  | `0`       | 开启后需等待 N 个区块确认才回调（防回滚）                        |
+| `block_batch_size`      | `3`       | EVM 链每次批量请求的区块数，免费 RPC 对 batch 限制不同时可调小            |
+| `notify_max_retry`      | `10`      | 商户回调最大尝试次数，1m/2m/4m… 退避（上限 6h），耗尽后标记 dead 并告警    |
 | `monitor_min_amount`    | `0.01`    | 非订单监控最小入账金额                                   |
 | `rate_float_USDT_CNY`   | （空）       | USDT/CNY 汇率浮动语法                               |
 

@@ -33,6 +33,7 @@ func main() {
 			cmd.Start,
 			cmd.Version,
 			cmd.Reset,
+			cmd.Scan,
 		},
 	}
 	if err := c.Run(context.Background(), os.Args); err != nil {

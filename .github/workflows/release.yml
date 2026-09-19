@@ -1,52 +1,131 @@
-name: Build and Release
+name: release
+# 打 v* 标签即发布：先跑测试，再并行 (1) GoReleaser 构建多平台二进制并创建 GitHub Release，
+# (2) 构建 linux/amd64 + linux/arm64 镜像推送到 GHCR（ghcr.io/<owner>/bepusdt），配置了 Docker Hub 密钥时同步推送。
 on:
+  push:
+    tags: ["v*"]
   workflow_dispatch:
-  create:
-    branches:
-      - main
-    tags:
-      - v*
+
+permissions:
+  contents: write
+  packages: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
 jobs:
-  build-release:
+  test:
+    name: Go vet & race tests
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout
-        uses: actions/checkout@v6
+      - uses: actions/checkout@v6
+      - uses: actions/setup-go@v5
         with:
-          ref: 'main'
+          go-version-file: go.mod
+          cache: true
+      - run: go vet ./...
+      - run: go test ./... -race -count=1
+
+  binaries:
+    name: Binaries & GitHub Release
+    needs: [test]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
           fetch-depth: 0
           fetch-tags: true
-      - name: Git Fetch Tags
-        run: git fetch --force --tags
-      - name: Set up Node.js
-        uses: actions/setup-node@v4
+      - uses: actions/setup-node@v4
         with:
-          node-version: '25'
+          node-version: "25"
       - name: Install pnpm
         run: npm install -g pnpm@10
-      - name: Install frontend dependencies
-        working-directory: ./web
-        run: pnpm install --frozen-lockfile --shamefully-hoist
       - name: Build frontend
         working-directory: ./web
-        run: pnpm run build:prod
-      - name: Move frontend files to static/secure
+        run: |
+          pnpm install --frozen-lockfile --shamefully-hoist
+          pnpm run build:prod
+      - name: Embed frontend
         run: |
           mkdir -p static/secure
           cp -r web/dist/* static/secure/
-      - name: Generate App Version
+      - name: Resolve version
         run: |
-          echo "VERSION_TAG=$(git describe --tags --abbrev=0)-$(git rev-parse --short=7 HEAD)" >> $GITHUB_ENV
-      - name: Set up Go
-        uses: actions/setup-go@v5
+          if [ "${GITHUB_REF_TYPE}" = "tag" ]; then
+            echo "VERSION=${GITHUB_REF_NAME}" >> "$GITHUB_ENV"
+          else
+            echo "VERSION=$(git describe --tags --abbrev=0 2>/dev/null || echo v0.0.0)-$(git rev-parse --short=7 HEAD)" >> "$GITHUB_ENV"
+          fi
+      - uses: actions/setup-go@v5
         with:
-          go-version: '1.26.2'
-      - name: Run GoReleaser
+          go-version-file: go.mod
+          cache: true
+      - name: GoReleaser
         uses: goreleaser/goreleaser-action@v6
         with:
           distribution: goreleaser
-          version: latest
-          args: release --clean --verbose
+          version: "~> v2"
+          args: release --clean ${{ github.ref_type != 'tag' && '--snapshot' || '' }}
         env:
-          VERSION: ${{ env.VERSION_TAG }}
+          VERSION: ${{ env.VERSION }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  image:
+    name: Container image
+    needs: [test]
+    runs-on: ubuntu-latest
+    env:
+      DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+    steps:
+      - uses: actions/checkout@v6
+      - name: Resolve image names
+        run: |
+          echo "GHCR_IMAGE=ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/bepusdt" >> "$GITHUB_ENV"
+          if [ -n "${DOCKERHUB_USERNAME}" ]; then
+            echo "DOCKERHUB_IMAGE=${DOCKERHUB_USERNAME}/bepusdt" >> "$GITHUB_ENV"
+          fi
+          if [ "${GITHUB_REF_TYPE}" = "tag" ]; then
+            echo "VERSION=${GITHUB_REF_NAME}" >> "$GITHUB_ENV"
+          else
+            echo "VERSION=manual-$(git rev-parse --short=7 HEAD)" >> "$GITHUB_ENV"
+          fi
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
+      - name: Login to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Login to Docker Hub
+        if: env.DOCKERHUB_IMAGE != ''
+        uses: docker/login-action@v3
+        with:
+          username: ${{ env.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+      - name: Image tags
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: |
+            ${{ env.GHCR_IMAGE }}
+            ${{ env.DOCKERHUB_IMAGE }}
+          tags: |
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=raw,value=latest,enable=${{ github.ref_type == 'tag' }}
+            type=sha,prefix=,format=short
+      - name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ./dockerfile
+          platforms: linux/amd64,linux/arm64
+          push: true
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          build-args: |
+            VERSION=${{ env.VERSION }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}

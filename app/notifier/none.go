@@ -24,6 +24,10 @@ func (None) Welcome() {
 
 }
 
+func (None) Alert(title, text string) {
+
+}
+
 func (None) Test() error {
 	return nil
 }

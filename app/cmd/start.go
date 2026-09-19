@@ -42,6 +42,7 @@ var Start = &cli.Command{
 		return ctx, task.Init()
 	},
 	After: func(ctx context.Context, c *cli.Command) error {
+		task.Shutdown() // 扫描游标落盘
 		log.Close()
 		model.Close()
 

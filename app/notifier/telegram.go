@@ -220,6 +220,13 @@ func (t *Telegram) Welcome() {
 	})
 }
 
+func (t *Telegram) Alert(title, text string) {
+	// 纯文本发送，避免告警内容中的特殊字符触发 Markdown 转义问题
+	t.sendMessage(&bot.SendMessageParams{
+		Text: fmt.Sprintf("🚨 %s\n---\n%s\n---\n⏱️ %s", title, text, time.Now().Format(time.DateTime)),
+	})
+}
+
 func (t *Telegram) Test() error {
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second*10)
 	defer cancel()

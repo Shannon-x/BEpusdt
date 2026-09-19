@@ -7,8 +7,8 @@ import (
 	"testing"
 	"time"
 
-	applog "github.com/v03413/bepusdt/app/log"
 	"github.com/glebarez/sqlite"
+	applog "github.com/v03413/bepusdt/app/log"
 	"github.com/v03413/bepusdt/app/model"
 	"gorm.io/gorm"
 )
@@ -52,21 +52,21 @@ func newWaitingOrder(notifyURL string) model.Order {
 	confirmedAt := now
 
 	return model.Order{
-		OrderId:       "merchant-order-1",
-		TradeId:       "trade-order-1",
-		TradeType:     model.UsdtTrc20,
-		Fiat:          "CNY",
-		Crypto:        "USDT",
-		Rate:          "7.00",
-		Amount:        "1.00",
-		Money:         "7.00",
-		Address:       "TTestAddress1234567890",
-		Status:        model.OrderStatusWaiting,
-		ApiType:       model.OrderApiTypeEpusdt,
-		NotifyUrl:     notifyURL,
-		ExpiredAt:     now.Add(10 * time.Minute),
-		ConfirmedAt:   &confirmedAt,
-		AutoTimeAt:    model.AutoTimeAt{CreatedAt: (*model.Datetime)(&now), UpdatedAt: (*model.Datetime)(&now)},
+		OrderId:     "merchant-order-1",
+		TradeId:     "trade-order-1",
+		TradeType:   model.UsdtTrc20,
+		Fiat:        "CNY",
+		Crypto:      "USDT",
+		Rate:        "7.00",
+		Amount:      "1.00",
+		Money:       "7.00",
+		Address:     "TTestAddress1234567890",
+		Status:      model.OrderStatusWaiting,
+		ApiType:     model.OrderApiTypeEpusdt,
+		NotifyUrl:   notifyURL,
+		ExpiredAt:   now.Add(10 * time.Minute),
+		ConfirmedAt: &confirmedAt,
+		AutoTimeAt:  model.AutoTimeAt{CreatedAt: (*model.Datetime)(&now), UpdatedAt: (*model.Datetime)(&now)},
 	}
 }
 
