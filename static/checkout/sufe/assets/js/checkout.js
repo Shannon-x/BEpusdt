@@ -15,6 +15,12 @@
     const ASSETS = '/checkout/sufe/assets';
     const WEB3 = ASSETS + '/web3icons';
     const LOCALES = ASSETS + '/locales';
+    /* 资源版本号（模板注入）：语言文件由脚本 fetch，同样需要随升级失效缓存 */
+    const ASSET_VERSION = (typeof window !== 'undefined' && window.__CHECKOUT_VERSION__) || '';
+
+    function localeUrl(lang) {
+        return localeUrl(lang) + (ASSET_VERSION ? '?v=' + encodeURIComponent(ASSET_VERSION) : '');
+    }
 
     const POLL_INTERVAL = 5000;      // 状态轮询间隔
     const URGENT_SECONDS = 300;      // 倒计时进入 coral 紧急态
@@ -184,7 +190,7 @@
                     return;
                 }
 
-                fetch(LOCALES + '/' + currentLang + '.json')
+                fetch(localeUrl(currentLang))
                     .then(function (r) { return r.json(); })
                     .then(function (translations) {
                         i18next.addResourceBundle(currentLang, 'translation', translations);
@@ -226,7 +232,7 @@
             return;
         }
 
-        fetch(LOCALES + '/' + lang + '.json')
+        fetch(localeUrl(lang))
             .then(function (r) { return r.json(); })
             .then(function (translations) {
                 i18next.addResourceBundle(lang, 'translation', translations);

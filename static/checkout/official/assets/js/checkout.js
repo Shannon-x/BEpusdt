@@ -1,4 +1,9 @@
 (function () {
+    // 资源版本号（模板注入）：语言文件由脚本 fetch，同样需要随升级失效缓存
+    var ASSET_VERSION = (typeof window !== 'undefined' && window.__CHECKOUT_VERSION__) || '';
+    function localeUrl(lang) {
+        return '/checkout/official/assets/locales/' + lang + '.json' + (ASSET_VERSION ? '?v=' + encodeURIComponent(ASSET_VERSION) : '');
+    }
     'use strict';
 
     var i18nReady = false;
@@ -24,7 +29,7 @@
             if (typeof i18next === 'undefined') return resolve();
             i18next.init({ lng: lang, debug: false, resources: {} }, function (err) {
                 if (err) return resolve();
-                fetch('/checkout/official/assets/locales/' + lang + '.json')
+                fetch(localeUrl(lang))
                     .then(function (r) { return r.json(); })
                     .then(function (d) {
                         i18next.addResourceBundle(lang, 'translation', d);
@@ -72,7 +77,7 @@
         if (l !== 'zh' && l !== 'en') { console.warn('Use "zh" or "en"'); return; }
         if (typeof i18next === 'undefined') return;
         lang = l;
-        fetch('/checkout/official/assets/locales/' + l + '.json')
+        fetch(localeUrl(l))
             .then(function (r) { return r.json(); })
             .then(function (d) {
                 i18next.addResourceBundle(l, 'translation', d, true, true);

@@ -12,20 +12,21 @@
     <meta name="theme-color" content="#faf9f5">
     <meta name="robots" content="noindex, nofollow">
     <title>苏菲家宽 · 收银台</title>
-    <link rel="icon" type="image/png" href="/checkout/sufe/assets/img/satellite-logo-64.png">
-    <link rel="apple-touch-icon" href="/checkout/sufe/assets/img/satellite-logo-192.png">
-    <link rel="stylesheet" href="/checkout/sufe/assets/css/checkout.css">
-    <script src="/checkout/sufe/assets/js/jquery.min.js"></script>
-    <script src="/checkout/sufe/assets/js/jquery.qrcode.min.js"></script>
-    <script src="/checkout/sufe/assets/js/i18next.min.js"></script>
-    <script src="/checkout/sufe/assets/js/checkout.js"></script>
+    <link rel="icon" type="image/png" href="/checkout/sufe/assets/img/satellite-logo-64.png?v={{ .version }}">
+    <link rel="apple-touch-icon" href="/checkout/sufe/assets/img/satellite-logo-192.png?v={{ .version }}">
+    <link rel="stylesheet" href="/checkout/sufe/assets/css/checkout.css?v={{ .version }}">
+    <script>window.__CHECKOUT_VERSION__ = "{{ .version }}";</script>
+    <script src="/checkout/sufe/assets/js/jquery.min.js?v={{ .version }}"></script>
+    <script src="/checkout/sufe/assets/js/jquery.qrcode.min.js?v={{ .version }}"></script>
+    <script src="/checkout/sufe/assets/js/i18next.min.js?v={{ .version }}"></script>
+    <script src="/checkout/sufe/assets/js/checkout.js?v={{ .version }}"></script>
 </head>
 <body>
 <div class="payment-container">
 
     <header class="brand-band">
         <a class="brand-wordmark" href="https://sufe.us" target="_blank" rel="noopener">
-            <span class="brand-mark"><img src="/checkout/sufe/assets/img/satellite-logo-64.png" alt="Sufe" width="26" height="26"></span>
+            <span class="brand-mark"><img src="/checkout/sufe/assets/img/satellite-logo-64.png?v={{ .version }}" alt="Sufe" width="26" height="26"></span>
             <span class="brand-name" data-i18n="payment.brandName">苏菲家宽</span>
             <span class="brand-domain" data-i18n="payment.brandDomain">sufe.us</span>
         </a>
@@ -199,7 +200,7 @@
 
     <div class="footer-info">
         <div class="footer-brand">
-            <span class="brand-mark"><img src="/checkout/sufe/assets/img/satellite-logo-64.png" alt="Sufe" width="18" height="18"></span>
+            <span class="brand-mark"><img src="/checkout/sufe/assets/img/satellite-logo-64.png?v={{ .version }}" alt="Sufe" width="18" height="18"></span>
             <span class="brand-name" data-i18n="payment.brandName">苏菲家宽</span>
         </div>
         <div class="footer-tagline" data-i18n="payment.brandTagline">极速畅游 · 全球纯净</div>

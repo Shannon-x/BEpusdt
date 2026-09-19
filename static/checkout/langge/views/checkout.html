@@ -4,11 +4,12 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>BEpusdt - 收银台</title>
-    <link rel="shortcut icon" href="/checkout/langge/assets/web3icons/token/USDT.svg">
-    <link rel="stylesheet" href="/checkout/langge/assets/css/checkout.css">
-    <script src="/checkout/langge/assets/js/jquery.min.js"></script>
-    <script src="/checkout/langge/assets/js/jquery.qrcode.min.js"></script>
-    <script src="/checkout/langge/assets/js/checkout.js"></script>
+    <link rel="shortcut icon" href="/checkout/langge/assets/web3icons/token/USDT.svg?v={{ .version }}">
+    <link rel="stylesheet" href="/checkout/langge/assets/css/checkout.css?v={{ .version }}">
+    <script>window.__CHECKOUT_VERSION__ = "{{ .version }}";</script>
+    <script src="/checkout/langge/assets/js/jquery.min.js?v={{ .version }}"></script>
+    <script src="/checkout/langge/assets/js/jquery.qrcode.min.js?v={{ .version }}"></script>
+    <script src="/checkout/langge/assets/js/checkout.js?v={{ .version }}"></script>
 </head>
 <body>
 <div class="cashier-shell">

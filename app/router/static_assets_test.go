@@ -2,6 +2,7 @@ package router
 
 import (
 	"encoding/json"
+	"html/template"
 	"io/fs"
 	"net/http"
 	"net/http/httptest"
@@ -92,4 +93,54 @@ func TestSufeLocalesHaveNoAmountPlaceholder(t *testing.T) {
 	if end < 0 || strings.Count(badge[start:start+end], "<img") != 1 {
 		t.Fatal("QR badge must hold exactly one image")
 	}
+}
+
+// 主题资源的文件名固定，升级后 URL 不变会被浏览器复用旧文件；
+// 模板必须给每个资源带上版本号，否则升级后页面仍跑旧脚本（曾导致语言切换失效、占位符外露）。
+func TestCheckoutTemplatesVersionTheirAssets(t *testing.T) {
+	for _, theme := range []string{"sufe", "official", "langge"} {
+		name := "checkout/" + theme + "/views/checkout.html"
+		raw, err := fs.ReadFile(static.Checkout, name)
+		if err != nil {
+			t.Fatalf("read %s: %v", name, err)
+		}
+
+		tmpl, err := template.New("checkout").Parse(string(raw))
+		if err != nil {
+			t.Fatalf("parse %s: %v", name, err)
+		}
+
+		var out strings.Builder
+		if err := tmpl.Execute(&out, map[string]any{"trade_id": "T1", "version": "v9.9.9"}); err != nil {
+			t.Fatalf("execute %s: %v", name, err)
+		}
+
+		rendered := out.String()
+		if strings.Contains(rendered, "{{") {
+			t.Fatalf("%s still holds unrendered template syntax", name)
+		}
+		if !strings.Contains(rendered, `window.__CHECKOUT_VERSION__ = "v9.9.9"`) {
+			t.Fatalf("%s must expose the asset version to its script", name)
+		}
+
+		for _, ext := range []string{".js", ".css"} {
+			for _, ref := range assetRefs(rendered, ext) {
+				if !strings.Contains(ref, "?v=v9.9.9") {
+					t.Fatalf("%s references %s without a version", name, ref)
+				}
+			}
+		}
+	}
+}
+
+// assetRefs 取出 rendered 中所有指向本主题 assets 目录、以 ext 结尾的引用
+func assetRefs(rendered, ext string) []string {
+	refs := make([]string, 0)
+	for _, part := range strings.Split(rendered, `"`) {
+		if strings.HasPrefix(part, "/checkout/") && strings.Contains(part, ext) {
+			refs = append(refs, part)
+		}
+	}
+
+	return refs
 }
