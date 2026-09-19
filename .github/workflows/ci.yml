@@ -48,6 +48,8 @@ jobs:
       - name: Build
         working-directory: ./web
         run: pnpm run build:prod
+      - name: Checkout theme smoke test
+        run: node scripts/checkout-smoke.mjs
 
   docker:
     name: Docker build (no push)

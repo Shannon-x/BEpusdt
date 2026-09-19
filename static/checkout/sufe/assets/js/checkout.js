@@ -19,7 +19,7 @@
     const ASSET_VERSION = (typeof window !== 'undefined' && window.__CHECKOUT_VERSION__) || '';
 
     function localeUrl(lang) {
-        return localeUrl(lang) + (ASSET_VERSION ? '?v=' + encodeURIComponent(ASSET_VERSION) : '');
+        return LOCALES + '/' + lang + '.json' + (ASSET_VERSION ? '?v=' + encodeURIComponent(ASSET_VERSION) : '');
     }
 
     const POLL_INTERVAL = 5000;      // 状态轮询间隔
