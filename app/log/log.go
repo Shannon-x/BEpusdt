@@ -64,18 +64,38 @@ func Init(dir string) error {
 }
 
 func Debug(args ...interface{}) {
+	if be == nil { // 未调用 Init 的场景（命令行工具、测试）退回标准输出，不能 panic
+		fmt.Fprintln(os.Stderr, append([]interface{}{"[DEBUG]"}, args...)...)
+
+		return
+	}
 	be.Debugln(args...)
 }
 
 func Info(args ...interface{}) {
+	if be == nil { // 未调用 Init 的场景（命令行工具、测试）退回标准输出，不能 panic
+		fmt.Fprintln(os.Stderr, append([]interface{}{"[INFO]"}, args...)...)
+
+		return
+	}
 	be.Infoln(args...)
 }
 
 func Error(args ...interface{}) {
+	if be == nil { // 未调用 Init 的场景（命令行工具、测试）退回标准输出，不能 panic
+		fmt.Fprintln(os.Stderr, append([]interface{}{"[ERROR]"}, args...)...)
+
+		return
+	}
 	be.Errorln(args...)
 }
 
 func Warn(args ...interface{}) {
+	if be == nil { // 未调用 Init 的场景（命令行工具、测试）退回标准输出，不能 panic
+		fmt.Fprintln(os.Stderr, append([]interface{}{"[WARN]"}, args...)...)
+
+		return
+	}
 	be.Warnln(args...)
 }
 

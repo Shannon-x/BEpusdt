@@ -302,15 +302,32 @@
         if (!aEl) return;
         if (selMethod) {
             aEl.textContent = selMethod.actual_amount + ' ' + selMethod.currency;
-            if (nEl) nEl.textContent = t('networkPrefix', '区块网络 · ') + selMethod.token_net_name;
+            if (nEl) nEl.textContent = t(selMethod.exchange ? 'exchangePrefix' : 'networkPrefix', selMethod.exchange ? '交易所内部转账 · ' : '区块网络 · ') + selMethod.token_net_name;
             if (lineEl) lineEl.style.display = 'flex';
             if (rowEl) rowEl.style.display = '';
+            setFeeNotice('feeNoticeS', selMethod.actual_amount, selMethod.currency);
         } else {
             aEl.textContent = '--';
             if (nEl) nEl.textContent = '';
             if (lineEl) lineEl.style.display = 'none';
             if (rowEl) rowEl.style.display = 'none';
+            setFeeNotice('feeNoticeS', '', '');
         }
+    }
+
+    // setFeeNotice 手续费提示：已知金额时明确写出“必须到账 X”，否则用通用文案
+    function setFeeNotice(id, amount, currency) {
+        var el = document.getElementById(id);
+        if (!el) return;
+        if (amount && typeof i18next !== 'undefined' && i18nReady) {
+            var text = i18next.t('feeNoticeAmount', { amount: amount, currency: currency || '' });
+            if (text && text !== 'feeNoticeAmount') { el.textContent = text; return; }
+        }
+        if (amount) {
+            el.textContent = '手续费由您承担，请确保实际到账 ' + amount + ' ' + (currency || '') + '，少一分都无法自动确认';
+            return;
+        }
+        el.textContent = t('feeNotice', '手续费由您承担，实际到账金额必须与页面显示完全一致');
     }
 
     function updatePayBtn() {
@@ -559,6 +576,7 @@
         initI18n: initI18n,
         applyI18n: applyI18n,
         t: t,
+        setFeeNotice: setFeeNotice,
         showCanceled: showCanceled,
         switchLang: switchLang
     };
@@ -675,6 +693,7 @@
         var network = (d.network && d.network.network) ? d.network.network : (d.selected_payment ? d.selected_payment.network : '');
         var amount = d.actual_amount || '--';
         window._qrAmount = amount;
+        if (window.Payment && window.Payment.setFeeNotice) window.Payment.setFeeNotice('feeNoticeQ', amount === '--' ? '' : amount, currency);
         document.getElementById('orderMoneyQ').textContent = d.money || '--';
         document.getElementById('orderFiatQ').textContent = d.fiat || '';
         document.getElementById('payAmountQ').textContent = amount + ' ' + currency;

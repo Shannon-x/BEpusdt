@@ -2,7 +2,7 @@
   "pageTitle": "BEpusdt - Better Personal Cryptocurrency Payment Gateway",
   "brandName": "BEpusdt",
   "helpTitle": "Support",
-  "feeNotice": "Please pay the exact amount shown",
+  "feeNotice": "You pay the network fee; the amount that arrives must match this page exactly",
   "timerLabel": "Expires in",
   "merchantOrder": "Merchant Order",
   "selectCurrency": "Select currency",
@@ -45,5 +45,6 @@
   "exchangePrefix": "Exchange internal transfer · ",
   "exchangeGuide": "Transfer to the account UID below inside the exchange app (internal transfer, no fee). The amount must match this page exactly; do not use on-chain withdrawal.",
   "exchangeGuide_binance": "Binance App → Wallet → Withdraw → choose “Binance user / internal transfer”, or use Binance Pay, enter the Binance ID (Pay ID) below and send the exact amount shown. No fee. Do not choose on-chain withdrawal.",
-  "exchangeGuide_okx": "OKX App → Assets → Withdraw → choose “Internal transfer”, enter the UID below as recipient and send the exact amount shown. No fee. Do not choose on-chain withdrawal."
+  "exchangeGuide_okx": "OKX App → Assets → Withdraw → choose “Internal transfer”, enter the UID below as recipient and send the exact amount shown. No fee. Do not choose on-chain withdrawal.",
+  "feeNoticeAmount": "You pay the network fee: exactly {{amount}} {{currency}} must arrive — anything less cannot be confirmed automatically"
 }

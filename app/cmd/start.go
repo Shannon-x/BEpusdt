@@ -27,11 +27,9 @@ import (
 var Start = &cli.Command{
 	Name:  "start",
 	Usage: "启动收款网关",
-	Flags: []cli.Flag{SQLiteFlag, PostgresDSNFlag, LogFlag, ListenFlag},
+	Flags: []cli.Flag{SQLiteFlag, MySQLDSNFlag, PostgresDSNFlag, LogFlag, ListenFlag},
 	Before: func(ctx context.Context, c *cli.Command) (context.Context, error) {
-		postgres := c.String("postgres")
-		sqlite := c.String("sqlite")
-		if err := model.Init(sqlite, postgres); err != nil {
+		if err := model.Init(c.String("sqlite"), c.String("mysql"), c.String("postgres")); err != nil {
 			return ctx, fmt.Errorf("数据库初始化失败 %w", err)
 		}
 
@@ -83,7 +81,16 @@ func start(ctx context.Context, cmd *cli.Command) error {
 
 	notifier.Welcome()
 
+	// 版本变化提示：结构与配置已在启动时自动迁移，这里把"升级了什么"告诉运维
+	if prev, upgraded := model.UpgradeCheck(app.Version); upgraded {
+		msg := fmt.Sprintf("BEpusdt 已从 %s 升级到 %s：数据库结构与默认配置已自动迁移；建议运行 bepusdt doctor 做一次自检，并查看发布说明确认新增功能与配置项。", prev, app.Version)
+		log.Info(msg)
+		fmt.Println(msg)
+		notifier.Alert("BEpusdt 已升级", msg)
+	}
+
 	fmt.Println(fmt.Sprintf("日志保存路径：%s", log.GetPath()))
+	fmt.Println(fmt.Sprintf("数据库类型：%s", model.Driver()))
 	fmt.Println(fmt.Sprintf("BEpusdt 启动成功(%s)，当前版本：%s", listen, app.Version))
 
 	// 等待中断信号

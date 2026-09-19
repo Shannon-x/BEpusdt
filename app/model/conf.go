@@ -240,7 +240,8 @@ func GetTronGridApiKeys() []string {
 	return keys
 }
 
-func FillDefaultConf() {
+// FillDefaultConf 为升级后新增的配置项写入默认值，返回本次补齐的配置键
+func FillDefaultConf() []ConfKey {
 	var existKeys []string
 	Db.Model(&Conf{}).Pluck("k", &existKeys)
 
@@ -250,14 +251,37 @@ func FillDefaultConf() {
 	}
 
 	var rows []Conf
+	added := make([]ConfKey, 0)
 	for k, v := range defaultConf {
 		if _, ok := existSet[k]; !ok {
 			rows = append(rows, Conf{K: k, V: v})
+			added = append(added, k)
 		}
 	}
 	if len(rows) > 0 {
 		Db.Create(&rows)
 	}
+
+	return added
+}
+
+// MissingDefaultConf 尚未写入数据库的默认配置项（诊断用）
+func MissingDefaultConf() []ConfKey {
+	var existKeys []string
+	Db.Model(&Conf{}).Pluck("k", &existKeys)
+	existSet := make(map[ConfKey]struct{}, len(existKeys))
+	for _, k := range existKeys {
+		existSet[ConfKey(k)] = struct{}{}
+	}
+
+	missing := make([]ConfKey, 0)
+	for k := range defaultConf {
+		if _, ok := existSet[k]; !ok {
+			missing = append(missing, k)
+		}
+	}
+
+	return missing
 }
 
 func GetLookbackHour() time.Duration {

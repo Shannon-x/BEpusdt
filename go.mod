@@ -10,6 +10,7 @@ require (
 	github.com/gin-gonic/gin v1.12.0
 	github.com/glebarez/sqlite v1.11.0
 	github.com/go-gormigrate/gormigrate/v2 v2.1.6
+	github.com/go-sql-driver/mysql v1.10.1
 	github.com/go-telegram/bot v1.20.0
 	github.com/joho/godotenv v1.5.1
 	github.com/matoous/go-nanoid/v2 v2.1.0
@@ -26,6 +27,7 @@ require (
 	github.com/xssnick/tonutils-go v1.17.2
 	golang.org/x/crypto v0.51.0
 	google.golang.org/grpc v1.81.0
+	gorm.io/driver/mysql v1.6.0
 	gorm.io/driver/postgres v1.6.0
 	gorm.io/gorm v1.31.1
 )

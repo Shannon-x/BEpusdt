@@ -2,7 +2,7 @@
   "pageTitle": "BEpusdt 一款更好用的个人加密货币收款网关",
   "brandName": "BEpusdt",
   "helpTitle": "联系客服",
-  "feeNotice": "请严格按照数额进行付款",
+  "feeNotice": "手续费由您承担，实际到账金额必须与页面显示完全一致",
   "timerLabel": "到期时间",
   "merchantOrder": "商户订单",
   "selectCurrency": "选择货币",
@@ -45,5 +45,6 @@
   "exchangePrefix": "交易所内部转账 · ",
   "exchangeGuide": "请在交易所 App 内向以下账户 UID 转账（内部转账免手续费），金额必须与页面完全一致；不要使用链上提现。",
   "exchangeGuide_binance": "打开币安 App → 资金 → 提现 → 选择「币安用户 / 内部转账」，或使用 Binance Pay 转账，输入以下 Binance ID（Pay ID），按页面金额精确转账，免手续费；请勿选择链上提现。",
-  "exchangeGuide_okx": "打开欧易 OKX App → 资产 → 提币 → 选择「内部转账」，收款方填以下 UID，按页面金额精确转账，免手续费；请勿选择链上提币。"
+  "exchangeGuide_okx": "打开欧易 OKX App → 资产 → 提币 → 选择「内部转账」，收款方填以下 UID，按页面金额精确转账，免手续费；请勿选择链上提币。",
+  "feeNoticeAmount": "手续费由您承担，请确保实际到账 {{amount}} {{currency}}，少一分都无法自动确认"
 }

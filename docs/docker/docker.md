@@ -78,11 +78,9 @@ docker run -d \
 </details>
 
 <details>
-<summary><strong>MySQL 数据库（已弃用）</strong></summary>
+<summary><strong>MySQL / MariaDB / TiDB 数据库</strong></summary>
 
-> **注意：** MySQL 支持将逐步弃用，建议使用 PostgreSQL 替代。
-
-系统仍支持使用 MySQL 作为数据存储方案，但不再推荐用于新部署。
+支持 MySQL 5.7+ / 8.x、MariaDB 10.x 以及 TiDB 等 MySQL 协议数据库。DSN 中缺少 `parseTime` / `charset` / `loc` 时会自动补齐；旧版 MySQL 部署可直接用原 DSN 启动新版，结构自动迁移。
 
 **部署命令：**
 
@@ -90,16 +88,16 @@ docker run -d \
 docker run -d \
   --restart unless-stopped \
   -p 8080:8080 \
-  -e MYSQL_DSN=user:password@tcp(127.0.0.1:3306)/bepusdt?charset=utf8mb4&parseTime=True&loc=Local&timeout=3s&readTimeout=10s&writeTimeout=10s \
-  v03413/bepusdt:latest
+  -e MYSQL_DSN="user:password@tcp(127.0.0.1:3306)/bepusdt?charset=utf8mb4&parseTime=True&loc=Local" \
+  ghcr.io/shannon-x/bepusdt:latest
 ```
 
 **配置说明：**
 
-- 将 `user` 替换为 MySQL 用户名
-- 将 `password` 替换为 MySQL 密码
-- 将 `127.0.0.1:3306` 替换为 MySQL 服务器地址和端口
-- 将 `bepusdt` 替换为实际数据库名称（如需要）
+- 将 `user` / `password` 替换为 MySQL 账号
+- 将 `127.0.0.1:3306` 替换为 MySQL 服务器地址和端口（容器内访问宿主机请用 `host.docker.internal` 或宿主机内网 IP）
+- 将 `bepusdt` 替换为实际数据库名称，需事先创建（`CREATE DATABASE bepusdt CHARACTER SET utf8mb4`）
+- 换库或从 SQLite 迁移：`bepusdt db copy --from-sqlite … --to-mysql …`，见 [升级指南](../upgrade.md)
 
 </details>
 

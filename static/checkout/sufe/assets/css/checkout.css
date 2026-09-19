@@ -1,0 +1,1796 @@
+/*
+ * 苏菲家宽 · 收银台主题（BEpusdt checkout 模板格式）
+ * 参考 Shannon-x/uptime-kuma-css 的 Editorial Warm Kuma 设计语言：
+ *   ✦ Paper grain 米色画布（不用 dark surface）
+ *   ✦ 中文优先 思源黑体 / PingFang（无衬线，体感干净）
+ *   ✦ Hairline 卡片 + 轻 inset 阴影
+ *   ✦ Terracotta 强调（按钮、链接、数字、状态）
+ *   ✦ JetBrains Mono 渲染金额 / 时间 / 哈希
+ *   ✦ 紧凑 spacing & 单列窄卡
+ *
+ * 单页两阶段：选择币种网络（selector-section）→ 二维码收款（qr-section），
+ * 共用同一套 hero / 订单卡 / 倒计时卡，由 checkout.js 切换。
+ */
+@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=Noto+Sans+SC:wght@400;500;600;700&family=Noto+Serif+SC:wght@500;600;700;900&display=swap');
+
+:root {
+    /* —— Editorial Warm 调色板（自 uptime-kuma-css） —— */
+    --cream-paper:           #faf9f5;
+    --warm-white:            #fffefa;
+    --surface-soft:          #f5f0e8;
+    --surface-card:          #efe9de;
+    --surface-cream-strong:  #e8e0d2;
+
+    --terracotta:            #cc785c;
+    --terracotta-active:     #a9583e;
+    --terracotta-soft:       rgba(204, 120, 92, 0.10);
+    --terracotta-ring:       rgba(204, 120, 92, 0.20);
+
+    --sage:                  #5db872;
+    --teal:                  #5db8a6;
+    --honey:                 #e8a55a;
+    --warning:               #d4a017;
+    --error:                 #c64545;
+
+    --walnut:                #141413;
+    --body-ink:              #3d3d3a;
+    --muted-ink:             #6c6a64;
+    --muted-soft:            #8e8b82;
+
+    --hairline:              #e6dfd8;
+    --hairline-soft:         #ebe6df;
+
+    --rgb-cream-paper:       250, 249, 245;
+    --rgb-surface-card:      239, 233, 222;
+    --rgb-terracotta:        204, 120, 92;
+    --rgb-honey:             232, 165, 90;
+    --rgb-sage:              93, 184, 114;
+    --rgb-walnut:            20, 20, 19;
+    --rgb-warm-white:        255, 254, 250;
+
+    /* —— Typography（与 uptime-kuma-css 同步：思源宋体作 display，思源黑体作 body）—— */
+    --font-sans:    "Noto Sans SC", "Source Han Sans SC", "PingFang SC", "Microsoft YaHei",
+                    -apple-system, BlinkMacSystemFont, "Segoe UI", "Helvetica Neue", sans-serif;
+    --font-serif:   "Noto Serif SC", "Source Han Serif SC", "Source Han Serif CN",
+                    "Songti SC", "STSong", "SimSun", Georgia, serif;
+    --font-mono:    "JetBrains Mono", "Noto Sans Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    --font-body:    var(--font-sans);
+    --font-display: var(--font-serif);                 /* 所有名称 / 标题都走思源宋体加粗 */
+    --font-ui:      var(--font-sans);                  /* 按钮 / 表单 / 状态 / 数字注释 */
+
+    --weight-medium:    500;
+    --weight-semibold:  600;
+    --weight-bold:      700;
+    --weight-black:     900;
+
+    /* —— Sizing —— */
+    --radius-2:  4px;
+    --radius-3:  6px;
+    --radius-4:  8px;
+    --radius-5:  10px;
+    --radius-6:  12px;
+    --radius-pill: 9999px;
+
+    --space-1: 4px;
+    --space-2: 8px;
+    --space-3: 12px;
+    --space-4: 16px;
+    --space-5: 20px;
+    --space-6: 24px;
+    --space-8: 32px;
+
+    /* —— Elevation （uptime-kuma 的 hairline + inset 轻阴影）—— */
+    --shadow-card:  0 1px 0 rgba(255, 255, 255, 0.55) inset,
+                    0 1px 2px rgba(var(--rgb-walnut), 0.04),
+                    0 6px 14px -8px rgba(var(--rgb-walnut), 0.06);
+    --shadow-hover: 0 1px 0 rgba(255, 255, 255, 0.6) inset,
+                    0 4px 12px rgba(var(--rgb-walnut), 0.07);
+
+    /* —— Alias（兼容 preview 等使用旧 token 名的位置）—— */
+    --color-canvas:        var(--cream-paper);
+    --color-ink:           var(--walnut);
+    --color-body:          var(--body-ink);
+    --color-muted:         var(--muted-ink);
+    --color-muted-soft:    var(--muted-soft);
+    --color-primary:       var(--terracotta);
+    --color-primary-active:var(--terracotta-active);
+    --color-on-primary:    var(--warm-white);
+    --color-on-dark:       var(--warm-white);
+    --color-hairline:      var(--hairline);
+    --color-surface-card:  var(--surface-card);
+    --color-surface-dark:  var(--walnut);       /* 不再有 dark navy 表面，回退到 walnut */
+    --radius-lg:           var(--radius-6);
+    --radius-md:           var(--radius-4);
+    --radius-pill-ext:     var(--radius-pill);
+}
+
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+/* flex / grid 子元素上的 hidden 属性必须真正生效 */
+[hidden] { display: none !important; }
+
+html {
+    -webkit-text-size-adjust: 100%;
+    text-size-adjust: 100%;
+    -webkit-tap-highlight-color: transparent;     /* 移除 Android Chrome 蓝色高亮 */
+}
+
+/* —— 所有可交互元素：去除 300ms 延迟 + 关闭点按高亮 —— */
+button, a, [role="button"], select, input, textarea, label,
+.copy-badge, .copy-btn, .copy-hint-icon, .coin-select, .option-item, .pay-button,
+.crypto-icon, .amount-value, .info-item, .btn, .help-btn, .reselect-btn,
+.copy-mini, .landing-cta, .sufe-btn-primary, .sufe-btn-secondary {
+    touch-action: manipulation;
+    -webkit-tap-highlight-color: transparent;
+}
+
+body {
+    background-color: var(--cream-paper);
+    background-image:
+        radial-gradient(rgba(var(--rgb-walnut), 0.025) 0.7px, transparent 0.8px),
+        linear-gradient(135deg, rgba(var(--rgb-terracotta), 0.05), transparent 36%),
+        linear-gradient(315deg, rgba(var(--rgb-honey), 0.06), transparent 42%);
+    background-position: 0 0, 0 0, 100% 100%;
+    background-size: 18px 18px, 100% 100%, 100% 100%;
+    background-attachment: fixed;
+    color: var(--body-ink);
+    font-family: var(--font-body);
+    font-size: 14px;
+    line-height: 1.5;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    text-rendering: geometricPrecision;
+    font-feature-settings: "kern" 1, "liga" 1;
+    min-height: 100vh;
+    min-height: 100dvh;                          /* 移动端浏览器动态高度，避免地址栏遮挡 */
+    display: flex;
+    align-items: flex-start;
+    justify-content: center;
+
+    /* —— Safe-area aware padding（iPhone X+ 刘海 / 底部 home bar） —— */
+    padding-top:    max(20px, env(safe-area-inset-top));
+    padding-right:  max(14px, env(safe-area-inset-right));
+    padding-bottom: max(28px, env(safe-area-inset-bottom));
+    padding-left:   max(14px, env(safe-area-inset-left));
+
+    overflow-x: hidden;
+    overflow-wrap: break-word;
+    word-break: break-word;
+}
+
+/* —— 主容器：单列窄卡，紧凑 —— */
+.payment-container {
+    width: 100%;
+    max-width: 460px;
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+    position: relative;
+}
+
+/* ============================================
+   品牌带：顶部窄行（logo + 域名 + 客服 + 语言切换）
+   ============================================ */
+.brand-band {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-3);
+    padding: 4px 2px;
+}
+
+.brand-wordmark {
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
+    text-decoration: none;
+    color: var(--walnut);
+    min-width: 0;
+}
+
+.brand-wordmark .brand-mark {
+    width: 26px;
+    height: 26px;
+    border-radius: 50%;
+    overflow: hidden;
+    flex-shrink: 0;
+    background: var(--walnut);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.brand-wordmark .brand-mark img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    display: block;
+}
+
+.brand-wordmark .brand-name {
+    font-family: var(--font-display);
+    font-weight: var(--weight-bold);
+    font-size: 16px;
+    line-height: 1;
+    letter-spacing: 0.5px;
+    color: var(--walnut);
+    white-space: nowrap;
+}
+
+.brand-wordmark .brand-domain {
+    font-family: var(--font-sans);
+    font-size: 11px;
+    color: var(--muted-ink);
+    letter-spacing: 1px;
+    text-transform: uppercase;
+    border-left: 1px solid var(--hairline);
+    padding-left: 8px;
+    margin-left: 2px;
+    font-weight: var(--weight-medium);
+    white-space: nowrap;
+}
+
+.band-actions {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    flex-shrink: 0;
+}
+
+/* —— 客服入口：hairline 圆钮（触摸目标 38px）—— */
+.help-btn {
+    width: 38px;
+    height: 38px;
+    border-radius: var(--radius-pill);
+    border: 1px solid var(--hairline);
+    background: var(--warm-white);
+    color: var(--muted-ink);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    text-decoration: none;
+    transition: border-color 0.15s, color 0.15s, background 0.15s, opacity 0.15s;
+}
+
+.help-btn svg {
+    width: 17px;
+    height: 17px;
+}
+
+.help-btn:hover,
+.help-btn:focus-visible {
+    border-color: var(--terracotta);
+    color: var(--terracotta);
+    outline: none;
+}
+
+.help-btn[aria-disabled="true"] {
+    opacity: 0.35;
+    pointer-events: none;
+}
+
+/* —— 语言切换（触摸目标 >= 38px 高）—— */
+.language-switcher select {
+    appearance: none;
+    -webkit-appearance: none;
+    background-color: var(--warm-white);
+    background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='10' height='10' viewBox='0 0 24 24' fill='none' stroke='%23141413' stroke-width='2.5'><polyline points='6 9 12 15 18 9'/></svg>");
+    background-repeat: no-repeat;
+    background-position: right 10px center;
+    border: 1px solid var(--hairline);
+    border-radius: var(--radius-4);
+    padding: 8px 30px 8px 12px;
+    min-height: 38px;
+    font-family: var(--font-sans);
+    font-size: 13px;
+    font-weight: var(--weight-medium);
+    color: var(--walnut);
+    cursor: pointer;
+    outline: none;
+    transition: border-color 0.15s, box-shadow 0.15s;
+}
+
+.language-switcher select:hover {
+    border-color: var(--terracotta);
+}
+
+.language-switcher select:focus-visible {
+    border-color: var(--terracotta);
+    box-shadow: 0 0 0 3px var(--terracotta-ring);
+}
+
+/* ============================================
+   Hero：币种圆标 + 标题 + 副标
+   ============================================ */
+.payment-hero {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 2px 2px;
+}
+
+.crypto-icon {
+    width: 44px;
+    height: 44px;
+    flex-shrink: 0;
+    border-radius: var(--radius-pill);
+    background: var(--surface-card);
+    border: 1px solid var(--hairline);
+    box-shadow: var(--shadow-card);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-family: var(--font-mono);
+    font-weight: var(--weight-semibold);
+    font-size: 13px;
+    letter-spacing: 0.5px;
+    color: var(--walnut);
+    font-feature-settings: "tnum";
+    font-variant-numeric: tabular-nums;
+    overflow: hidden;
+}
+
+/* web3icons token 图标：填进圆标，留一点内边距 */
+.crypto-icon img {
+    width: 30px;
+    height: 30px;
+    object-fit: contain;
+    display: block;
+}
+
+.payment-hero-text {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    flex: 1;
+    min-width: 0;
+}
+
+.payment-title {
+    font-family: var(--font-display);
+    font-weight: var(--weight-bold);
+    font-size: 24px;
+    line-height: 1.2;
+    letter-spacing: 0.5px;
+    color: var(--walnut);
+}
+
+.payment-subtitle {
+    font-family: var(--font-sans);
+    font-size: 12.5px;
+    line-height: 1.45;
+    color: var(--muted-ink);
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 6px;
+}
+
+.payment-subtitle strong {
+    color: var(--body-ink);
+    font-weight: var(--weight-semibold);
+}
+
+.status-indicator {
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: var(--sage);
+    box-shadow: 0 0 0 3px rgba(var(--rgb-sage), 0.18);
+    display: inline-block;
+    animation: pulse 2.2s ease-in-out infinite;
+    flex-shrink: 0;
+}
+
+@keyframes pulse {
+    0%, 100% { opacity: 1; transform: scale(1); }
+    50% { opacity: 0.55; transform: scale(0.82); }
+}
+
+.network-badge {
+    display: inline-flex;
+    align-items: center;
+    background: var(--terracotta-soft);
+    color: var(--terracotta);
+    font-family: var(--font-mono);
+    font-size: 10.5px;
+    font-weight: var(--weight-semibold);
+    line-height: 1;
+    letter-spacing: 0.5px;
+    text-transform: uppercase;
+    padding: 4px 8px;
+    border-radius: var(--radius-pill);
+    border: 1px solid rgba(var(--rgb-terracotta), 0.18);
+}
+
+/* ============================================
+   主金额卡：突出付款数字（mono + coral + 大字号）
+   ============================================ */
+.order-info {
+    background: rgba(var(--rgb-warm-white), 0.78);
+    border: 1px solid var(--hairline);
+    border-radius: var(--radius-6);
+    box-shadow: var(--shadow-card);
+    padding: 16px 18px;
+    display: flex;
+    flex-direction: column;
+    gap: 0;
+}
+
+.order-item {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 10px 0;
+    border-bottom: 1px solid var(--hairline-soft);
+}
+
+.order-item:first-child {
+    padding-top: 4px;
+}
+
+.order-item:last-child {
+    padding-bottom: 4px;
+    border-bottom: none;
+}
+
+.order-label {
+    font-family: var(--font-sans);
+    font-size: 12px;
+    font-weight: var(--weight-medium);
+    color: var(--muted-ink);
+    flex-shrink: 0;
+    letter-spacing: 0;
+}
+
+.order-value {
+    font-family: var(--font-sans);
+    font-size: 13px;
+    font-weight: var(--weight-medium);
+    color: var(--walnut);
+    text-align: right;
+    word-break: break-all;
+    font-feature-settings: "tnum";
+    font-variant-numeric: tabular-nums;
+}
+
+/* 付款金额：mono + 大字号 + coral —— 让用户一眼看清，并提供 ≥ 44px 触摸区 */
+.order-value.amount-value {
+    font-family: var(--font-mono);
+    font-weight: var(--weight-semibold);
+    font-size: 26px;
+    line-height: 1.1;
+    letter-spacing: -0.02em;
+    color: var(--terracotta);
+    cursor: pointer;
+    transition: color 0.15s, background 0.15s;
+    padding: 6px 0;
+    margin: -6px 0;             /* 视觉位置不变，但触摸区域扩大 */
+    min-height: 44px;
+    font-feature-settings: "tnum";
+    font-variant-numeric: tabular-nums;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    user-select: all;
+    border-radius: var(--radius-3);
+}
+
+.order-value.amount-value:hover,
+.order-value.amount-value:active {
+    color: var(--terracotta-active);
+}
+
+.order-value.amount-value:active {
+    background: var(--terracotta-soft);
+}
+
+/* 未选定付款方式时，金额是占位符 —— 不给可点击暗示 */
+.order-value.amount-value.is-empty {
+    color: var(--muted-soft);
+    cursor: default;
+}
+
+.order-value.amount-value.is-empty .copy-hint-icon {
+    opacity: 0.25;
+}
+
+/* —— 金额右侧 inline 复制图标 —— */
+.copy-hint-icon {
+    width: 15px;
+    height: 15px;
+    color: currentColor;
+    opacity: 0.5;
+    transition: opacity 0.15s, transform 0.15s;
+    flex-shrink: 0;
+    align-self: center;
+    margin-bottom: 2px;
+}
+
+.order-value.amount-value:hover .copy-hint-icon,
+.order-value.amount-value:active .copy-hint-icon {
+    opacity: 1;
+    transform: translateY(-1px);
+}
+
+/* —— “付款数额” label 旁的 “可复制” 提示 pill —— 移动友好版 */
+.copy-badge {
+    display: inline-flex;
+    align-items: center;
+    margin-left: 6px;
+    padding: 3px 9px 3px 8px;
+    background: var(--terracotta-soft);
+    color: var(--terracotta);
+    font-family: var(--font-sans);
+    font-size: 11px;
+    font-weight: var(--weight-semibold);
+    letter-spacing: 0.4px;
+    border-radius: var(--radius-pill);
+    border: 1px dashed rgba(var(--rgb-terracotta), 0.4);
+    line-height: 1.3;
+    transition: background 0.15s, color 0.15s, border-style 0.15s;
+    cursor: pointer;
+    user-select: none;
+    -webkit-user-select: none;
+    min-height: 22px;
+}
+
+.copy-badge::before {
+    content: "";
+    display: inline-block;
+    width: 5px;
+    height: 5px;
+    border-radius: 50%;
+    background: currentColor;
+    margin-right: 5px;
+    animation: pulse 2.2s ease-in-out infinite;
+    flex-shrink: 0;
+}
+
+/* hover 在手机上无效，仅作桌面端反馈 */
+.order-item:has(.amount-value):hover .copy-badge,
+.copy-badge:hover,
+.copy-badge:active {
+    background: var(--terracotta);
+    color: var(--warm-white);
+    border-style: solid;
+    border-color: var(--terracotta);
+}
+
+.fiat-amount {
+    color: var(--muted-ink);
+    font-family: var(--font-mono);
+    font-size: 12px;
+    font-weight: var(--weight-medium);
+    font-feature-settings: "tnum";
+    font-variant-numeric: tabular-nums;
+}
+
+.fiat-amount span {
+    color: var(--muted-soft);
+    font-family: var(--font-sans);
+    font-style: normal;
+    font-size: 11px;
+    margin-right: 2px;
+}
+
+.fiat-amount #orderMoney {
+    color: var(--muted-ink);
+    font-family: var(--font-mono);
+    font-size: 12px;
+    margin-right: 0;
+}
+
+/* ============================================
+   倒计时：单行紧凑，不用 coral 满色块
+   ============================================ */
+.countdown-banner {
+    background: rgba(var(--rgb-warm-white), 0.78);
+    border: 1px solid var(--hairline);
+    border-radius: var(--radius-6);
+    box-shadow: var(--shadow-card);
+    padding: 12px 16px;
+    transition: background 0.3s, border-color 0.3s;
+}
+
+.countdown-banner.is-urgent {
+    background: rgba(var(--rgb-terracotta), 0.08);
+    border-color: rgba(var(--rgb-terracotta), 0.32);
+}
+
+.countdown-content {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+}
+
+.countdown-info {
+    flex: 1;
+    min-width: 0;
+}
+
+.countdown-title {
+    font-family: var(--font-display);
+    font-size: 15px;
+    font-weight: var(--weight-bold);
+    letter-spacing: 0.4px;
+    color: var(--walnut);
+    margin-bottom: 2px;
+}
+
+.countdown-subtitle {
+    display: none;          /* 紧凑版本：默认隐藏副标，避免占高 */
+}
+
+.countdown-timer {
+    display: inline-flex;
+    align-items: baseline;
+    gap: 2px;
+    font-family: var(--font-mono);
+    font-feature-settings: "tnum";
+    font-variant-numeric: tabular-nums;
+    color: var(--walnut);
+}
+
+.countdown-banner.is-urgent .countdown-timer {
+    color: var(--terracotta);
+}
+
+.time-unit {
+    display: inline-flex;
+    align-items: baseline;
+    gap: 2px;
+    background: transparent;
+    border: none;
+    padding: 0;
+}
+
+.time-number {
+    font-family: var(--font-mono);
+    font-weight: var(--weight-semibold);
+    font-size: 22px;
+    line-height: 1;
+    letter-spacing: -0.02em;
+    min-width: 1.6ch;
+    text-align: right;
+    display: inline-block;
+}
+
+.time-label {
+    font-family: var(--font-sans);
+    font-size: 10px;
+    font-weight: var(--weight-medium);
+    letter-spacing: 0.5px;
+    color: var(--muted-ink);
+    text-transform: lowercase;
+    margin-right: 4px;
+}
+
+.time-separator {
+    font-family: var(--font-mono);
+    font-weight: var(--weight-semibold);
+    font-size: 22px;
+    line-height: 1;
+    opacity: 0.45;
+    margin: 0 1px;
+    animation: blink 1.4s ease-in-out infinite;
+}
+
+@keyframes blink {
+    0%, 50% { opacity: 0.45; }
+    51%, 100% { opacity: 0.15; }
+}
+
+@keyframes urgentBlink {
+    0%, 50% { opacity: 1; }
+    51%, 100% { opacity: 0.6; }
+}
+
+/* ============================================
+   订单载入骨架：一行 hairline 卡（AJAX 拉取期间占位）
+   ============================================ */
+.stage-skeleton {
+    background: rgba(var(--rgb-warm-white), 0.78);
+    border: 1px dashed var(--hairline);
+    border-radius: var(--radius-6);
+    padding: 18px 16px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+    font-family: var(--font-sans);
+    font-size: 13px;
+    color: var(--muted-ink);
+}
+
+/* ============================================
+   币种 / 网络选择器（阶段一）
+   ============================================ */
+.selector-section {
+    background: rgba(var(--rgb-warm-white), 0.78);
+    border: 1px solid var(--hairline);
+    border-radius: var(--radius-6);
+    box-shadow: var(--shadow-card);
+    padding: 14px 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.selector-content {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    width: 100%;
+}
+
+.selector-container {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+/* —— Custom select trigger（触摸目标 ≥ 48px）—— */
+.coin-select {
+    position: relative;
+    flex: 1;
+    background: var(--cream-paper);
+    border: 1px solid var(--hairline);
+    border-radius: var(--radius-4);
+    padding: 12px 14px;
+    min-height: 48px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    transition: border-color 0.15s, box-shadow 0.15s, background 0.15s;
+    user-select: none;
+    -webkit-user-select: none;
+    outline: none;
+    touch-action: manipulation;
+    -webkit-tap-highlight-color: transparent;
+}
+
+.coin-select:hover,
+.coin-select:active {
+    border-color: var(--terracotta);
+}
+
+.coin-select.active,
+.coin-select:focus-visible {
+    border-color: var(--terracotta);
+    box-shadow: 0 0 0 3px var(--terracotta-ring);
+    background: var(--warm-white);
+}
+
+.coin-select.is-disabled {
+    opacity: 0.55;
+    cursor: not-allowed;
+    background: var(--surface-soft);
+}
+
+.coin-select .coin-select-text {
+    font-family: var(--font-sans);
+    font-weight: var(--weight-medium);
+    font-size: 13.5px;
+    color: var(--walnut);
+    line-height: 1.4;
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.coin-select .coin-select-text.is-placeholder {
+    color: var(--muted-ink);
+    font-weight: var(--weight-medium);
+}
+
+/* 选中后 trigger 左侧出现 token / network 图标 */
+.coin-select .coin-select-icon {
+    width: 22px;
+    height: 22px;
+    object-fit: contain;
+    flex-shrink: 0;
+    display: block;
+}
+
+.coin-select > svg {
+    width: 16px;
+    height: 16px;
+    color: var(--muted-ink);
+    transition: transform 0.2s, color 0.15s;
+    flex-shrink: 0;
+    margin-left: 8px;
+}
+
+.coin-select.active > svg {
+    transform: rotate(180deg);
+    color: var(--terracotta);
+}
+
+/* —— Dropdown 列表 —— */
+.options-list {
+    position: absolute;
+    top: calc(100% + 4px);
+    left: 0;
+    width: 100%;
+    background: var(--warm-white);
+    border: 1px solid var(--hairline);
+    border-radius: var(--radius-4);
+    box-shadow: 0 12px 32px -10px rgba(var(--rgb-walnut), 0.16);
+    z-index: 100;
+    max-height: 280px;
+    overflow-y: auto;
+    opacity: 0;
+    visibility: hidden;
+    transform: translateY(-4px);
+    transition: opacity 0.16s, transform 0.16s, visibility 0.16s;
+    padding: 4px;
+    cursor: default;
+}
+
+.coin-select.active .options-list {
+    opacity: 1;
+    visibility: visible;
+    transform: translateY(0);
+}
+
+/* —— 选项内搜索（选项 > 6 项时才注入）—— */
+.options-search-wrap {
+    position: sticky;
+    top: 0;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 8px 8px;
+    background: var(--warm-white);
+    border-bottom: 1px solid var(--hairline-soft);
+    margin-bottom: 4px;
+}
+
+.options-search-wrap svg {
+    width: 14px;
+    height: 14px;
+    color: var(--muted-soft);
+    flex-shrink: 0;
+}
+
+.options-search {
+    flex: 1;
+    min-width: 0;
+    border: none;
+    background: transparent;
+    outline: none;
+    font-family: var(--font-sans);
+    font-size: 13px;
+    color: var(--walnut);
+    min-height: 24px;
+}
+
+.options-search::placeholder {
+    color: var(--muted-soft);
+}
+
+.option-item {
+    padding: 11px 12px;
+    min-height: 42px;
+    border-radius: var(--radius-3);
+    cursor: pointer;
+    transition: background 0.12s, color 0.12s;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    touch-action: manipulation;
+    -webkit-tap-highlight-color: transparent;
+}
+
+.option-item:hover,
+.option-item:active {
+    background: var(--cream-paper);
+}
+
+.option-item.selected {
+    background: var(--terracotta-soft);
+}
+
+.option-item.selected .option-text {
+    color: var(--terracotta);
+    font-weight: var(--weight-semibold);
+}
+
+.option-item .option-icon {
+    width: 22px;
+    height: 22px;
+    object-fit: contain;
+    flex-shrink: 0;
+    display: block;
+}
+
+.option-item .option-text {
+    font-family: var(--font-sans);
+    font-size: 13px;
+    color: var(--walnut);
+    font-weight: var(--weight-medium);
+    flex: 1;
+    min-width: 0;
+}
+
+.option-item .option-badge {
+    font-family: var(--font-mono);
+    font-size: 10px;
+    font-weight: var(--weight-medium);
+    letter-spacing: 0.5px;
+    text-transform: uppercase;
+    padding: 2px 6px;
+    background: var(--surface-card);
+    color: var(--muted-ink);
+    border-radius: var(--radius-pill);
+    flex-shrink: 0;
+}
+
+.option-item .option-badge.is-popular {
+    background: rgba(var(--rgb-honey), 0.16);
+    color: #9a6516;
+}
+
+.option-item .option-check {
+    width: 15px;
+    height: 15px;
+    color: var(--terracotta);
+    opacity: 0;
+    flex-shrink: 0;
+    transition: opacity 0.12s;
+}
+
+.option-item.selected .option-check {
+    opacity: 1;
+}
+
+.options-empty {
+    padding: 14px 12px;
+    text-align: center;
+    font-family: var(--font-sans);
+    font-size: 12.5px;
+    color: var(--muted-soft);
+}
+
+.options-list::-webkit-scrollbar {
+    width: 6px;
+}
+
+.options-list::-webkit-scrollbar-thumb {
+    background-color: var(--hairline);
+    border-radius: 3px;
+}
+
+.options-list::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+/* —— 主 CTA：terracotta（触摸目标 ≥ 50px，手机端首要按钮）—— */
+.pay-button {
+    cursor: pointer;
+    font-family: var(--font-sans);
+    background: var(--terracotta);
+    color: var(--warm-white);
+    border: 1px solid var(--terracotta);
+    border-radius: var(--radius-4);
+    padding: 14px 18px;
+    width: 100%;
+    min-height: 50px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: background 0.15s, transform 0.05s, box-shadow 0.15s, border-color 0.15s;
+    box-shadow: 0 1px 0 rgba(255, 255, 255, 0.18) inset;
+    touch-action: manipulation;
+    -webkit-tap-highlight-color: transparent;
+    -webkit-user-select: none;
+    user-select: none;
+}
+
+.pay-button:hover {
+    background: var(--terracotta-active);
+    border-color: var(--terracotta-active);
+}
+
+.pay-button:active:not(:disabled) {
+    background: var(--terracotta-active);
+    border-color: var(--terracotta-active);
+    transform: translateY(1px);
+}
+
+.pay-button:focus-visible {
+    outline: none;
+    box-shadow: 0 1px 0 rgba(255, 255, 255, 0.18) inset, 0 0 0 3px var(--terracotta-ring);
+}
+
+.pay-button p {
+    color: var(--warm-white);
+    margin: 0;
+    font-family: var(--font-sans);
+    font-weight: var(--weight-semibold);
+    font-size: 15px;
+    line-height: 1;
+    letter-spacing: 0.2px;
+    display: inline-flex;
+    align-items: center;
+    column-gap: 6px;
+}
+
+.pay-button:disabled {
+    background: var(--surface-cream-strong);
+    border-color: var(--hairline);
+    color: var(--muted-ink);
+    cursor: not-allowed;
+    box-shadow: none;
+    transform: none;
+}
+
+.pay-button:disabled p {
+    color: var(--muted-ink);
+}
+
+.pay-button.is-loading {
+    pointer-events: none;
+}
+
+/* ============================================
+   二维码 + 地址卡（阶段二）：cream 卡（不再 dark navy）
+   ============================================ */
+.qr-section {
+    background: rgba(var(--rgb-warm-white), 0.78);
+    border: 1px solid var(--hairline);
+    border-radius: var(--radius-6);
+    box-shadow: var(--shadow-card);
+    padding: 16px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 14px;
+}
+
+.qr-code {
+    position: relative;
+    width: 180px;
+    height: 180px;
+    background: var(--warm-white);
+    border: 1px solid var(--hairline);
+    border-radius: var(--radius-4);
+    padding: 8px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+/* 二维码画布容器：jquery.qrcode 会往这里注入 canvas，徽标是它的兄弟节点 */
+.qr-canvas {
+    width: 100%;
+    height: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.qr-code canvas,
+.qr-code img,
+.qr-code table {
+    max-width: 100%;
+    max-height: 100%;
+    width: auto;
+    height: auto;
+    display: block;
+}
+
+/* —— 二维码中心 token 徽标（纠错等级 H，占比 < 6% 面积，不影响识别）—— */
+.qr-logo-badge {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    width: 38px;
+    height: 38px;
+    border-radius: var(--radius-pill);
+    background: var(--warm-white);
+    border: 1px solid var(--hairline);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    pointer-events: none;
+}
+
+.qr-token-logo {
+    width: 26px;
+    height: 26px;
+    object-fit: contain;
+}
+
+.qr-network-logo {
+    position: absolute;
+    right: -2px;
+    bottom: -2px;
+    width: 15px;
+    height: 15px;
+    padding: 1px;
+    border-radius: var(--radius-pill);
+    background: var(--warm-white);
+    border: 1px solid var(--hairline);
+    object-fit: contain;
+}
+
+.address-section {
+    width: 100%;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.address-label {
+    font-family: var(--font-display);
+    font-size: 14px;
+    font-weight: var(--weight-bold);
+    letter-spacing: 0.4px;
+    color: var(--walnut);
+    text-align: left;
+}
+
+.address-text {
+    font-family: var(--font-mono);
+    font-size: 12px;
+    line-height: 1.45;
+    color: var(--walnut);
+    background: var(--cream-paper);
+    border: 1px solid var(--hairline-soft);
+    border-radius: var(--radius-4);
+    padding: 10px 12px;
+    word-break: break-all;
+    user-select: all;
+    text-align: left;
+}
+
+/* 地址首尾强调，肉眼核对时更快 */
+.address-text .address-emphasis {
+    color: var(--terracotta);
+    font-weight: var(--weight-semibold);
+}
+
+/* —— 复制地址主按钮：达到 iOS 44px 触摸标准 —— */
+.copy-btn {
+    align-self: stretch;
+    background: var(--terracotta);
+    color: var(--warm-white);
+    border: 1px solid var(--terracotta);
+    border-radius: var(--radius-4);
+    padding: 13px 16px;
+    min-height: 44px;
+    font-family: var(--font-sans);
+    font-size: 14px;
+    font-weight: var(--weight-medium);
+    cursor: pointer;
+    transition: background 0.15s, transform 0.05s, border-color 0.15s;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    line-height: 1;
+}
+
+.copy-btn:hover,
+.copy-btn:focus-visible {
+    background: var(--terracotta-active);
+    border-color: var(--terracotta-active);
+    outline: none;
+}
+
+.copy-btn:active {
+    background: var(--terracotta-active);
+    border-color: var(--terracotta-active);
+    transform: translateY(1px);
+}
+
+.copy-btn.is-copied {
+    background: var(--sage);
+    border-color: var(--sage);
+}
+
+/* —— 返回重选付款方式：次级按钮 —— */
+.reselect-btn {
+    align-self: stretch;
+    background: var(--warm-white);
+    color: var(--muted-ink);
+    border: 1px solid var(--hairline);
+    border-radius: var(--radius-4);
+    padding: 12px 14px;
+    min-height: 44px;
+    font-family: var(--font-sans);
+    font-size: 13px;
+    font-weight: var(--weight-medium);
+    line-height: 1.2;
+    cursor: pointer;
+    transition: border-color 0.15s, color 0.15s, background 0.15s, transform 0.05s;
+}
+
+.reselect-btn:hover,
+.reselect-btn:focus-visible {
+    border-color: var(--terracotta);
+    color: var(--terracotta);
+    background: var(--cream-paper);
+    outline: none;
+}
+
+.reselect-btn:active {
+    transform: translateY(1px);
+}
+
+/* ============================================
+   说明：cream 卡 + 编号点（紧凑）
+   ============================================ */
+.instructions {
+    background: rgba(var(--rgb-surface-card), 0.55);
+    border: 1px solid var(--hairline);
+    border-radius: var(--radius-6);
+    padding: 14px 16px;
+}
+
+.instructions h4 {
+    font-family: var(--font-display);
+    font-weight: var(--weight-bold);
+    font-size: 16px;
+    line-height: 1.2;
+    letter-spacing: 0.4px;
+    color: var(--walnut);
+    margin-bottom: 10px;
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.instructions h4::before {
+    content: "";
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: var(--terracotta);
+    display: inline-block;
+    flex-shrink: 0;
+}
+
+.instructions ol {
+    list-style: none;
+    counter-reset: instr;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.instructions ol li {
+    counter-increment: instr;
+    position: relative;
+    padding-left: 22px;
+    font-family: var(--font-sans);
+    font-size: 12.5px;
+    line-height: 1.5;
+    color: var(--body-ink);
+}
+
+.instructions ol li::before {
+    content: counter(instr);
+    position: absolute;
+    left: 0;
+    top: 1px;
+    width: 16px;
+    height: 16px;
+    border-radius: var(--radius-pill);
+    background: var(--warm-white);
+    color: var(--terracotta);
+    border: 1px solid var(--hairline);
+    font-family: var(--font-mono);
+    font-weight: var(--weight-semibold);
+    font-size: 10px;
+    line-height: 14px;
+    text-align: center;
+}
+
+.instructions ol li strong {
+    color: var(--walnut);
+    font-weight: var(--weight-semibold);
+}
+
+/* ============================================
+   页脚：单行 hairline 细脚
+   ============================================ */
+.footer-info {
+    margin-top: 2px;
+    padding: 12px 4px 2px;
+    border-top: 1px solid var(--hairline);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 4px;
+    text-align: center;
+}
+
+.footer-info .footer-brand {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.footer-info .footer-brand .brand-mark {
+    width: 18px;
+    height: 18px;
+    border-radius: 50%;
+    overflow: hidden;
+    background: var(--walnut);
+}
+
+.footer-info .footer-brand .brand-mark img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+}
+
+.footer-info .footer-brand .brand-name {
+    font-family: var(--font-display);
+    font-weight: var(--weight-bold);
+    font-size: 13px;
+    color: var(--walnut);
+    letter-spacing: 0.4px;
+}
+
+.footer-info .footer-tagline {
+    font-family: var(--font-display);
+    font-weight: var(--weight-medium);
+    font-size: 12px;
+    color: var(--muted-ink);
+    letter-spacing: 0.6px;
+}
+
+.footer-info .project-info {
+    display: inline-flex;
+    align-items: center;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 6px;
+    font-family: var(--font-sans);
+    font-size: 11px;
+    color: var(--muted-soft);
+}
+
+.footer-info .powered-by,
+.footer-info .open-source {
+    color: var(--muted-soft);
+}
+
+.footer-info .project-link {
+    color: var(--muted-ink);
+    text-decoration: none;
+    transition: color 0.15s;
+}
+
+.footer-info .project-link:hover {
+    color: var(--terracotta);
+}
+
+.footer-info .project-link strong {
+    font-family: var(--font-display);
+    font-weight: var(--weight-bold);
+}
+
+/* ============================================
+   轻提示 toast（复制反馈之外的错误 / 状态提示）
+   ============================================ */
+.sufe-toast {
+    position: fixed;
+    left: 50%;
+    top: max(16px, env(safe-area-inset-top));
+    transform: translateX(-50%) translateY(-140%);
+    z-index: 10000;
+    max-width: min(420px, calc(100vw - 32px));
+    background: var(--warm-white);
+    border: 1px solid var(--hairline);
+    border-left: 3px solid var(--terracotta);
+    border-radius: var(--radius-4);
+    box-shadow: 0 16px 40px -18px rgba(var(--rgb-walnut), 0.34);
+    padding: 11px 16px;
+    font-family: var(--font-sans);
+    font-size: 13px;
+    font-weight: var(--weight-medium);
+    line-height: 1.45;
+    color: var(--walnut);
+    opacity: 0;
+    pointer-events: none;
+    transition: transform 0.24s cubic-bezier(0.16, 1, 0.3, 1), opacity 0.24s;
+}
+
+.sufe-toast.is-visible {
+    transform: translateX(-50%) translateY(0);
+    opacity: 1;
+}
+
+.sufe-toast.is-success {
+    border-left-color: var(--sage);
+}
+
+.sufe-toast.is-error {
+    border-left-color: var(--error);
+}
+
+/* ============================================
+   状态模态层（超时 / 等待 / 成功 / 取消）—— 也用 cream
+   ============================================ */
+.status-overlay,
+.success-overlay,
+#waiting-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(20, 20, 19, 0.42);
+    backdrop-filter: blur(6px);
+    -webkit-backdrop-filter: blur(6px);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 9999;
+
+    /* safe-area aware：避免 modal 被刘海/底部遮挡 */
+    padding-top:    max(20px, env(safe-area-inset-top));
+    padding-right:  max(16px, env(safe-area-inset-right));
+    padding-bottom: max(20px, env(safe-area-inset-bottom));
+    padding-left:   max(16px, env(safe-area-inset-left));
+}
+
+.sufe-modal {
+    background: var(--cream-paper);
+    background-image:
+        radial-gradient(rgba(var(--rgb-walnut), 0.025) 0.7px, transparent 0.8px);
+    background-size: 18px 18px;
+    border: 1px solid var(--hairline);
+    border-radius: var(--radius-6);
+    padding: 24px 22px 20px;
+    max-width: 360px;
+    width: 100%;
+    box-shadow: 0 24px 60px -20px rgba(var(--rgb-walnut), 0.32);
+    text-align: center;
+    max-height: 100%;
+    overflow-y: auto;
+}
+
+.sufe-modal-icon {
+    margin: 0 auto 12px;
+    width: 44px;
+    height: 44px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    background: var(--terracotta-soft);
+    border-radius: var(--radius-pill);
+}
+
+.sufe-modal-icon svg {
+    width: 24px;
+    height: 24px;
+}
+
+.success-overlay .sufe-modal-icon {
+    background: rgba(var(--rgb-sage), 0.14);
+}
+
+.sufe-modal-title {
+    font-family: var(--font-display);
+    font-weight: var(--weight-bold);
+    font-size: 19px;
+    line-height: 1.3;
+    letter-spacing: 0.5px;
+    color: var(--walnut);
+    margin-bottom: 8px;
+}
+
+.sufe-modal-body {
+    font-family: var(--font-sans);
+    font-size: 13px;
+    line-height: 1.55;
+    color: var(--body-ink);
+    margin-bottom: 18px;
+}
+
+.sufe-modal-body code {
+    display: inline-block;
+    background: var(--warm-white);
+    color: var(--walnut);
+    font-family: var(--font-mono);
+    font-size: 11px;
+    padding: 6px 10px;
+    border-radius: var(--radius-3);
+    border: 1px solid var(--hairline);
+    margin-top: 6px;
+    word-break: break-all;
+    max-width: 100%;
+    line-height: 1.4;
+}
+
+/* 链上详情：cream 卡 + mono 链接 */
+.sufe-modal-hash {
+    display: block;
+    text-decoration: none;
+    margin: 0 0 14px;
+    padding: 10px 12px;
+    background: var(--warm-white);
+    border: 1px solid var(--hairline);
+    border-radius: var(--radius-4);
+    text-align: left;
+    transition: border-color 0.15s, background 0.15s;
+}
+
+.sufe-modal-hash:hover {
+    border-color: var(--terracotta);
+    background: var(--cream-paper);
+}
+
+.sufe-modal-hash .hash-label {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    font-family: var(--font-sans);
+    font-size: 10.5px;
+    font-weight: var(--weight-medium);
+    letter-spacing: 0.6px;
+    text-transform: uppercase;
+    color: var(--muted-soft);
+    margin-bottom: 5px;
+}
+
+.sufe-modal-hash .hash-label svg {
+    width: 13px;
+    height: 13px;
+    flex-shrink: 0;
+}
+
+.sufe-modal-hash .hash-value {
+    display: block;
+    font-family: var(--font-mono);
+    font-size: 11.5px;
+    line-height: 1.4;
+    color: var(--terracotta);
+    word-break: break-all;
+}
+
+.sufe-modal-actions {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.sufe-btn-primary,
+.sufe-btn-secondary {
+    appearance: none;
+    border: 1px solid transparent;
+    cursor: pointer;
+    font-family: var(--font-sans);
+    font-size: 14px;
+    font-weight: var(--weight-medium);
+    line-height: 1;
+    padding: 13px 20px;
+    min-height: 44px;
+    border-radius: var(--radius-4);
+    transition: background 0.15s, transform 0.05s, border-color 0.15s;
+    text-decoration: none;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+}
+
+.sufe-btn-primary {
+    background: var(--terracotta);
+    color: var(--warm-white);
+    border-color: var(--terracotta);
+}
+
+.sufe-btn-primary:hover {
+    background: var(--terracotta-active);
+    border-color: var(--terracotta-active);
+}
+
+.sufe-btn-primary:active {
+    transform: translateY(1px);
+}
+
+.sufe-btn-secondary {
+    background: var(--warm-white);
+    color: var(--walnut);
+    border-color: var(--hairline);
+}
+
+.sufe-btn-secondary:hover {
+    background: var(--surface-soft);
+    border-color: var(--terracotta);
+}
+
+.sufe-spinner {
+    width: 32px;
+    height: 32px;
+    border-radius: 50%;
+    border: 3px solid var(--hairline);
+    border-top-color: var(--terracotta);
+    animation: spin 0.9s linear infinite;
+    margin: 0 auto 12px;
+}
+
+.sufe-spinner-sm {
+    width: 16px;
+    height: 16px;
+    border-width: 2px;
+    margin: 0;
+    flex-shrink: 0;
+}
+
+@keyframes spin {
+    to { transform: rotate(360deg); }
+}
+
+.sufe-pill-success {
+    display: inline-block;
+    background: rgba(var(--rgb-sage), 0.14);
+    color: #2f7d40;
+    padding: 5px 11px;
+    border-radius: var(--radius-pill);
+    font-family: var(--font-sans);
+    font-size: 12px;
+    font-weight: var(--weight-medium);
+    margin: 2px 0;
+}
+
+/* ============================================
+   响应式策略（多级渐进降级 + 横屏 + 高密度屏）
+   断点：540 / 460 / 380 / 340 + landscape + reduced-motion
+   ============================================ */
+
+/* —— 平板与中等手机 (< 540px)：order-item 改竖排，防止订单号 / 地址溢出 —— */
+@media (max-width: 540px) {
+    body {
+        padding-top:    max(16px, env(safe-area-inset-top));
+        padding-right:  max(12px, env(safe-area-inset-right));
+        padding-bottom: max(24px, env(safe-area-inset-bottom));
+        padding-left:   max(12px, env(safe-area-inset-left));
+    }
+    .payment-container { gap: 12px; }
+
+    /* —— 订单卡：每一项换成上下两行布局，文本能完整展开 —— */
+    .order-item {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 4px;
+        padding: 10px 0;
+    }
+    .order-label {
+        font-size: 11.5px;
+        line-height: 1.3;
+        display: inline-flex;
+        align-items: center;
+        flex-wrap: wrap;
+        gap: 6px;
+    }
+    .order-value {
+        text-align: left;
+        width: 100%;
+        font-size: 14px;
+    }
+    .order-value.amount-value {
+        font-size: 30px;     /* 单独成行后可以更醒目 */
+        line-height: 1.05;
+        padding-top: 6px;
+    }
+    .fiat-amount {
+        font-size: 13px;
+    }
+    .fiat-amount #orderMoney {
+        font-size: 13px;
+    }
+}
+
+/* —— 标准手机 (< 460px)：缩 hero + QR + 倒计时 —— */
+@media (max-width: 460px) {
+    body {
+        padding-top:    max(14px, env(safe-area-inset-top));
+        padding-right:  max(10px, env(safe-area-inset-right));
+        padding-bottom: max(20px, env(safe-area-inset-bottom));
+        padding-left:   max(10px, env(safe-area-inset-left));
+    }
+    .payment-title { font-size: 22px; }
+    .order-value.amount-value { font-size: 28px; }
+    .qr-code { width: 180px; height: 180px; }
+    .crypto-icon { width: 42px; height: 42px; font-size: 12.5px; }
+    .crypto-icon img { width: 28px; height: 28px; }
+    .time-number, .time-separator { font-size: 21px; }
+    .order-info, .qr-section, .countdown-banner, .instructions { padding: 14px 16px; }
+    .selector-section { padding: 12px 14px; gap: 10px; }
+    .coin-select { min-height: 46px; padding: 11px 12px; }
+    .coin-select .coin-select-text { font-size: 14px; }
+    .pay-button { min-height: 48px; padding: 13px 16px; }
+    .pay-button p { font-size: 14.5px; }
+    .brand-wordmark .brand-domain { display: none; }
+}
+
+/* —— 紧凑手机 (< 380px)：iPhone SE/小屏 Android —— */
+@media (max-width: 380px) {
+    .payment-container { gap: 10px; }
+    .payment-title { font-size: 20px; line-height: 1.18; }
+    .order-value.amount-value { font-size: 25px; }
+    .qr-code { width: 160px; height: 160px; }
+    .crypto-icon { width: 40px; height: 40px; font-size: 12px; }
+    .time-number, .time-separator { font-size: 19px; }
+    .countdown-title { font-size: 14px; }
+    .order-info, .qr-section, .countdown-banner, .instructions { padding: 12px 14px; }
+    .copy-btn { font-size: 13.5px; padding: 12px 14px; min-height: 44px; }
+    .coin-select { min-height: 44px; padding: 10px 12px; }
+    .pay-button { min-height: 46px; }
+    .brand-wordmark .brand-name { font-size: 15px; }
+    .footer-info .footer-brand .brand-name { font-size: 12.5px; }
+    .instructions ol li { font-size: 12.5px; }
+}
+
+/* —— 极窄屏 (< 340px)：iPhone SE 1代 / 老 Android 防溢出 —— */
+@media (max-width: 340px) {
+    body {
+        padding-top:    max(12px, env(safe-area-inset-top));
+        padding-right:  max(8px,  env(safe-area-inset-right));
+        padding-bottom: max(18px, env(safe-area-inset-bottom));
+        padding-left:   max(8px,  env(safe-area-inset-left));
+    }
+    .payment-title { font-size: 18px; }
+    .order-value.amount-value { font-size: 22px; }
+    .qr-code { width: 144px; height: 144px; }
+    .address-text { font-size: 11px; padding: 9px 10px; }
+    .brand-wordmark .brand-mark { width: 22px; height: 22px; }
+    .brand-wordmark .brand-name { font-size: 14px; }
+    .help-btn { width: 36px; height: 36px; }
+    .language-switcher select { padding: 7px 26px 7px 10px; font-size: 12px; min-height: 36px; }
+}
+
+/* —— 横屏手机 (高 ≤ 500px)：避免一屏放不下，缩 hero/QR —— */
+@media (max-height: 500px) and (orientation: landscape) {
+    body {
+        padding-top:    max(10px, env(safe-area-inset-top));
+        padding-bottom: max(14px, env(safe-area-inset-bottom));
+        align-items: flex-start;
+    }
+    .payment-container { gap: 10px; }
+    .payment-title { font-size: 20px; }
+    .order-value.amount-value { font-size: 24px; }
+    .qr-code { width: 140px; height: 140px; }
+    .qr-section { padding: 12px 14px; }
+    .countdown-banner { padding: 10px 14px; }
+    .countdown-title { font-size: 13px; }
+    .time-number, .time-separator { font-size: 18px; }
+    .instructions { padding: 12px 14px; }
+    .options-list { max-height: 200px; }
+}
+
+/* —— 高密度屏（Retina/2x+）：略微细化字间距 —— */
+@media (min-resolution: 2dppx), (-webkit-min-device-pixel-ratio: 2) {
+    body { -webkit-font-smoothing: subpixel-antialiased; }
+    .payment-title, .brand-wordmark .brand-name,
+    .countdown-title, .address-label, .instructions h4 {
+        letter-spacing: 0.3px;
+    }
+}
+
+/* —— 用户减少动画偏好：关闭所有循环动画 —— */
+@media (prefers-reduced-motion: reduce) {
+    .status-indicator,
+    .copy-badge::before,
+    .time-separator,
+    .sufe-spinner,
+    .landing-mark img {
+        animation: none !important;
+    }
+    * {
+        transition-duration: 0.01ms !important;
+        animation-duration: 0.01ms !important;
+    }
+}

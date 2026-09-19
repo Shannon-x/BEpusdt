@@ -42,6 +42,8 @@
 
 🏦 交易所内部转账： Binance 币安 / OKX 欧易（免手续费、秒到）[配置说明](./docs/faq/exchange.md)
 
+🗄️ 数据库： SQLite / MySQL（MariaDB、TiDB）/ PostgreSQL，换库与升级见 [升级指南](./docs/upgrade.md)
+
 - ✅ 完全兼容 `Epusdt` 插件无缝替换
 - ️✅ 支持主流区块网络 不仅限于`USDT`
 - ✅ 支持主流法定货币 汇率自动更新

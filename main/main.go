@@ -34,6 +34,8 @@ func main() {
 			cmd.Version,
 			cmd.Reset,
 			cmd.Scan,
+			cmd.Doctor,
+			cmd.DB,
 		},
 	}
 	if err := c.Run(context.Background(), os.Args); err != nil {

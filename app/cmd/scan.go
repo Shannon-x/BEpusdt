@@ -17,7 +17,7 @@ var Scan = &cli.Command{
 		{
 			Name:   "status",
 			Usage:  "查看各链持久化游标、任务统计与回调 outbox 状态",
-			Flags:  []cli.Flag{SQLiteFlag, PostgresDSNFlag},
+			Flags:  []cli.Flag{SQLiteFlag, MySQLDSNFlag, PostgresDSNFlag},
 			Before: scanBefore,
 			After:  scanAfter,
 			Action: func(ctx context.Context, cmd *cli.Command) error {
@@ -45,7 +45,7 @@ var Scan = &cli.Command{
 			Name:  "replay",
 			Usage: "登记补扫任务：bepusdt scan replay --network solana --from 448096702 --to 448096702",
 			Flags: []cli.Flag{
-				SQLiteFlag, PostgresDSNFlag,
+				SQLiteFlag, MySQLDSNFlag, PostgresDSNFlag,
 				&cli.StringFlag{Name: "network", Usage: "网络标识：tron / solana / polygon / bsc / ethereum / arbitrum / base / xlayer / plasma / aptos / ton", Required: true},
 				&cli.IntFlag{Name: "from", Usage: "起始区块（Solana 为 slot，Aptos 为 version）", Required: true},
 				&cli.IntFlag{Name: "to", Usage: "结束区块（含），默认等于 from"},
@@ -81,7 +81,7 @@ var Scan = &cli.Command{
 			Name:  "jobs",
 			Usage: "查看最近的扫描任务",
 			Flags: []cli.Flag{
-				SQLiteFlag, PostgresDSNFlag,
+				SQLiteFlag, MySQLDSNFlag, PostgresDSNFlag,
 				&cli.StringFlag{Name: "network", Usage: "只看某个网络"},
 				&cli.IntFlag{Name: "limit", Usage: "条数", Value: 30},
 			},
@@ -102,7 +102,7 @@ var Scan = &cli.Command{
 }
 
 func scanBefore(ctx context.Context, c *cli.Command) (context.Context, error) {
-	if err := model.Init(c.String("sqlite"), c.String("postgres")); err != nil {
+	if err := model.Init(c.String("sqlite"), c.String("mysql"), c.String("postgres")); err != nil {
 		return ctx, fmt.Errorf("数据库初始化失败 %w", err)
 	}
 

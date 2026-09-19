@@ -9,6 +9,13 @@ var SQLiteFlag = &cli.StringFlag{
 	Sources: cli.EnvVars("SQLITE"),
 }
 
+var MySQLDSNFlag = &cli.StringFlag{
+	Name:    "mysql",
+	Value:   "",
+	Usage:   "MySQL / MariaDB / TiDB 连接字符串 (DSN)，例如: user:password@tcp(127.0.0.1:3306)/bepusdt?charset=utf8mb4&parseTime=True&loc=Local",
+	Sources: cli.EnvVars("MYSQL_DSN"),
+}
+
 var PostgresDSNFlag = &cli.StringFlag{
 	Name:    "postgres",
 	Value:   "",

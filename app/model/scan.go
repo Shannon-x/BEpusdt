@@ -125,10 +125,10 @@ func RecentScanJobs(network string, limit int) []ScanJob {
 func ScanJobCounts(network string) map[string]int64 {
 	type row struct {
 		Status string
-		Count  int64
+		Total  int64
 	}
 	rows := make([]row, 0)
-	db := Db.Model(&ScanJob{}).Select("status, count(*) as count").Group("status")
+	db := Db.Model(&ScanJob{}).Select("status, count(*) as total").Group("status")
 	if network != "" {
 		db = db.Where("network = ?", network)
 	}
@@ -136,7 +136,7 @@ func ScanJobCounts(network string) map[string]int64 {
 
 	counts := make(map[string]int64, len(rows))
 	for _, r := range rows {
-		counts[r.Status] = r.Count
+		counts[r.Status] = r.Total
 	}
 
 	return counts
@@ -147,17 +147,17 @@ func ScanJobCountsAll() map[string]map[string]int64 {
 	type row struct {
 		Network string
 		Status  string
-		Count   int64
+		Total   int64
 	}
 	rows := make([]row, 0)
-	Db.Model(&ScanJob{}).Select("network, status, count(*) as count").Group("network, status").Scan(&rows)
+	Db.Model(&ScanJob{}).Select("network, status, count(*) as total").Group("network, status").Scan(&rows)
 
 	out := make(map[string]map[string]int64)
 	for _, r := range rows {
 		if out[r.Network] == nil {
 			out[r.Network] = make(map[string]int64)
 		}
-		out[r.Network][r.Status] = r.Count
+		out[r.Network][r.Status] = r.Total
 	}
 
 	return out

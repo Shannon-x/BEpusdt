@@ -7,6 +7,7 @@ interface List {
   trade_type?: string;
   remark?: string;
   other_notify?: number;
+  has_credentials?: boolean;
 }
 
 interface FormData {
@@ -24,6 +25,9 @@ interface AddForm {
   trade_type: string;
   remark: string;
   other_notify: number;
+  api_key?: string;
+  api_secret?: string;
+  passphrase?: string;
 }
 
 interface ModForm {
@@ -34,6 +38,9 @@ interface ModForm {
   trade_type: string;
   remark: string;
   other_notify: number;
+  api_key?: string;
+  api_secret?: string;
+  passphrase?: string;
 }
 
 interface Pagination {

@@ -93,6 +93,7 @@ const (
 	NotifierChannel ConfKey = "notifier_channel" // 通知渠道 (telegram, wechat, email
 
 	SystemInstallLock ConfKey = "system_install_lock" // 系统安装锁
+	SystemVersion     ConfKey = "system_version"      // 最近一次运行的程序版本，用于升级提示
 	HomeRedirectUrl   ConfKey = "home_redirect_url"
 )
 const (
