@@ -358,11 +358,21 @@ func (p *endpointPicker) failed(endpoint string) {
 
 // ---- 告警 ----
 
-// alertSender 告警发送函数，测试可替换
+// 告警发送函数，测试可替换
 var alertSender = notifier.Alert
+var noticeSender = notifier.Notice
 
-// scanAlert 发送限频告警：同一 key 在 every 周期内只发一次
+// scanAlert 影响收款的限频告警：同一 key 在 every 周期内只发一次
 func scanAlert(key string, every time.Duration, title, text string) {
+	emitScanAlert(alertSender, key, every, title, text)
+}
+
+// scanNotice 运维提示：默认只记日志，notifier_alerts=all 时才推送
+func scanNotice(key string, every time.Duration, title, text string) {
+	emitScanAlert(noticeSender, key, every, title, text)
+}
+
+func emitScanAlert(send func(string, string), key string, every time.Duration, title, text string) {
 	k := "scan_alert_" + key
 	if _, ok := cache.Get(k); ok {
 		return
@@ -370,7 +380,21 @@ func scanAlert(key string, every time.Duration, title, text string) {
 
 	cache.Set(k, true, every)
 	log.Task.Warn(fmt.Sprintf("[ALERT] %s：%s", title, strings.ReplaceAll(text, "\n", " ")))
-	alertSender(title, text)
+	send(title, text)
+}
+
+// scanWorkers 区块解析并发数：block_scan_workers 未配置（0）时使用各链默认值。
+// 并发不足会导致扫块追不上出块速度（队列堆积 → 跳过区间），过高则容易触发 RPC 限流。
+func scanWorkers(def int) int {
+	n := cast.ToInt(model.GetC(model.BlockScanWorkers))
+	if n <= 0 {
+		return def
+	}
+	if n > 64 {
+		return 64
+	}
+
+	return n
 }
 
 // ---- 放弃统计 ----
@@ -812,7 +836,7 @@ func recordGap(network string, from, to int64, reason string) {
 		log.Task.Error(fmt.Sprintf("persist scan gap %s %d-%d failed: %v", network, from, to, err))
 	}
 	log.Task.Warn(fmt.Sprintf("扫描区间跳过(%s) %d → %d：%s", network, from, to, reason))
-	scanAlert("gap_"+network, 10*time.Minute, "扫描区间跳过",
+	scanNotice("gap_"+network, 10*time.Minute, "扫描区间跳过",
 		fmt.Sprintf("网络：%s\n区间：%d → %d（%d 个区块）\n原因：%s\n该区间已记录为 gap 任务，不会自动扫描；期间的待支付订单会由订单回溯覆盖。\n如需完整补扫可用 POST /api/scan/replay 分段回放（单次 ≤ %d 个区块）。",
 			network, from, to, to-from+1, reason, replayMaxBlocks))
 }
@@ -905,7 +929,7 @@ func scanRequiredSet() map[string]bool {
 func syncBreak(network string, num int) bool {
 	if num >= blockQueueLimit {
 		log.Task.Warn(fmt.Sprintf("%s 同步阻塞，当前区块消费堆积数量：%d", network, num))
-		scanAlert("queue_"+network, 10*time.Minute, "扫描队列拥堵",
+		scanNotice("queue_"+network, 10*time.Minute, "扫描队列拥堵",
 			fmt.Sprintf("网络：%s\n实时队列堆积 %d 个区块已达上限 %d，新区块暂停入队。\n通常是 RPC 节点限流或不可用，请检查节点配置。", network, num, blockQueueLimit))
 
 		return true

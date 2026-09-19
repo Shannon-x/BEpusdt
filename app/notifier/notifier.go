@@ -13,6 +13,13 @@ const (
 	ChannelTelegram = "telegram"
 )
 
+// 告警推送级别；无论哪一级，事件本身都会记入日志，这里只决定是否推送到通知渠道
+const (
+	AlertsOff       = "off"       // 全部不推送
+	AlertsImportant = "important" // 仅推送影响收款的告警（默认）
+	AlertsAll       = "all"       // 连同运维提示一起推送
+)
+
 type Notifier interface {
 	Initialize(params string) error                             // 初始化
 	Success(o model.Order)                                      // 交易成功通知
@@ -112,8 +119,23 @@ func Welcome() {
 	go notifier.Welcome()
 }
 
-// Alert 发送系统告警；调用方负责限频
+// Alert 影响收款的告警（扫块停滞、区块放弃、回调失败、凭证失效等）；调用方负责限频。
+// notifier_alerts=off 时不推送。
 func Alert(title, text string) {
+	dispatchAlert(true, title, text)
+}
+
+// Notice 运维提示（版本升级、区间跳过、队列拥堵、对账补认单等）；
+// 仅在 notifier_alerts=all 时推送，默认只记日志。
+func Notice(title, text string) {
+	dispatchAlert(false, title, text)
+}
+
+func dispatchAlert(important bool, title, text string) {
+	if !shouldSend(important, GetC(model.NotifierAlerts)) {
+		return
+	}
+
 	notifier, err := getNotifier()
 	if err != nil {
 		return
@@ -121,6 +143,21 @@ func Alert(title, text string) {
 
 	go notifier.Alert(title, text)
 }
+
+// shouldSend 按告警级别判断是否推送
+func shouldSend(important bool, level string) bool {
+	switch level {
+	case AlertsOff:
+		return false
+	case AlertsAll:
+		return true
+	default: // important 或未配置
+		return important
+	}
+}
+
+// GetC 便于测试替换的配置读取
+var GetC = model.GetC
 
 func Test() error {
 	notifier, err := getNotifier()

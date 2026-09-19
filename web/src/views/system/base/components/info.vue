@@ -23,6 +23,26 @@
           </a-form-item>
 
           <a-form-item
+            field="block_scan_workers"
+            label="扫块并发数"
+            extra="0 表示使用各链默认值（Solana 10、EVM 3、Tron 2）。出现「队列拥堵」「区间跳过」说明扫块追不上出块速度，可调高；过高则容易触发 RPC 限流"
+          >
+            <a-input v-model="form.block_scan_workers" placeholder="推荐 0（各链默认）" />
+          </a-form-item>
+
+          <a-form-item
+            field="notifier_alerts"
+            label="告警推送范围"
+            extra="所有事件都会记入日志，这里只决定推送到通知渠道的范围"
+          >
+            <a-select v-model="form.notifier_alerts" placeholder="请选择">
+              <a-option value="important">仅影响收款（推荐）</a-option>
+              <a-option value="all">全部（含升级、区间跳过、队列拥堵等运维提示）</a-option>
+              <a-option value="off">全部关闭（只记日志）</a-option>
+            </a-select>
+          </a-form-item>
+
+          <a-form-item
             field="notify_max_retry"
             label="回调最大重试"
             extra="支付回调失败时的最大重试次数，重试分钟间隔数：2 4 8 16 32 64 ..."
@@ -118,7 +138,9 @@ const form = ref({
   payment_min_amount: "",
   payment_match_mode: "classic",
   home_redirect_url: "",
-  payment_lookback_hour: ""
+  payment_lookback_hour: "",
+  block_scan_workers: "0",
+  notifier_alerts: "important"
 });
 const rules = {
   block_height_max_diff: [
@@ -205,7 +227,9 @@ const onSubmit = async ({ errors }: ArcoDesign.ArcoSubmit) => {
     { key: "payment_timeout", value: form.value.payment_timeout },
     { key: "payment_match_mode", value: form.value.payment_match_mode },
     { key: "home_redirect_url", value: form.value.home_redirect_url },
-    { key: "payment_lookback_hour", value: form.value.payment_lookback_hour }
+    { key: "payment_lookback_hour", value: form.value.payment_lookback_hour },
+    { key: "block_scan_workers", value: form.value.block_scan_workers },
+    { key: "notifier_alerts", value: form.value.notifier_alerts }
   ]);
 
   Message.success("保存成功");
@@ -218,6 +242,8 @@ watch(
   () => {
     form.value.block_height_max_diff = data.value.block_height_max_diff;
     form.value.block_offset_confirm = data.value.block_offset_confirm || "0";
+    form.value.block_scan_workers = data.value.block_scan_workers ?? "0";
+    form.value.notifier_alerts = data.value.notifier_alerts || "important";
     form.value.notify_max_retry = data.value.notify_max_retry;
     form.value.payment_max_amount = data.value.payment_max_amount;
     form.value.payment_min_amount = data.value.payment_min_amount;

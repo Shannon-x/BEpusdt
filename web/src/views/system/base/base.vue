@@ -97,6 +97,8 @@ const getConf = async () => {
         "admin_secure",
         "block_height_max_diff",
         "block_offset_confirm",
+        "block_scan_workers",
+        "notifier_alerts",
         "admin_login_at",
         "admin_login_ip",
         "notify_max_retry",

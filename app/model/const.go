@@ -80,6 +80,7 @@ const (
 	BlockHeightMaxDiff ConfKey = "block_height_max_diff" // 区块高度最大差值，超过此值则以当前区块高度为准，重新开始扫描
 	BlockOffsetConfirm ConfKey = "block_offset_confirm"  // 区块偏移确认数，扫描时以当前区块高度减去此偏移量为准，避免重链导致的订单回调失败
 	BlockBatchSize     ConfKey = "block_batch_size"      // EVM 批量请求区块数量，不同免费 RPC 对 batch 限制不同，默认 3
+	BlockScanWorkers   ConfKey = "block_scan_workers"    // 区块解析并发数，0 表示使用各链默认值
 
 	MqttHost        ConfKey = "mqtt_host"
 	MqttPort        ConfKey = "mqtt_port"
@@ -89,6 +90,7 @@ const (
 	MqttTopicPrefix ConfKey = "mqtt_topic_prefix" // 消息发布 Topic 路径前缀
 	MqttNetworks    ConfKey = "mqtt_networks"     // 需要持续监控的区块网络
 
+	NotifierAlerts  ConfKey = "notifier_alerts"  // 告警推送级别：off 只记日志 / important 仅影响收款 / all 全部
 	NotifierParams  ConfKey = "notifier_params"  // 通知参数 (token, chat_id, email
 	NotifierChannel ConfKey = "notifier_channel" // 通知渠道 (telegram, wechat, email
 

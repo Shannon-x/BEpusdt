@@ -86,7 +86,7 @@ func start(ctx context.Context, cmd *cli.Command) error {
 		msg := fmt.Sprintf("BEpusdt 已从 %s 升级到 %s：数据库结构与默认配置已自动迁移；建议运行 bepusdt doctor 做一次自检，并查看发布说明确认新增功能与配置项。", prev, app.Version)
 		log.Info(msg)
 		fmt.Println(msg)
-		notifier.Alert("BEpusdt 已升级", msg)
+		notifier.Notice("BEpusdt 已升级", msg)
 	}
 
 	fmt.Println(fmt.Sprintf("日志保存路径：%s", log.GetPath()))

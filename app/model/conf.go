@@ -45,6 +45,8 @@ var defaultConf = map[ConfKey]string{
 	BlockHeightMaxDiff:      "1000",
 	BlockOffsetConfirm:      "0",
 	BlockBatchSize:          "3",
+	BlockScanWorkers:        "0",
+	NotifierAlerts:          "important",
 	PaymentTimeout:          "1200",     // 20分钟
 	PaymentCheckout:         "official", // 官方模板
 	PaymentMatchMode:        string(Classic),

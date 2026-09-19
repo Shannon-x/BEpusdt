@@ -213,7 +213,7 @@ func (t *tron) lookbackBlocks(ctx context.Context) {
 }
 
 func (t *tron) blockDispatch(ctx context.Context) {
-	p, err := ants.NewPoolWithFunc(2, t.blockParse)
+	p, err := ants.NewPoolWithFunc(scanWorkers(2), t.blockParse)
 	if err != nil {
 		log.Task.Warn("Error creating pool:", err)
 

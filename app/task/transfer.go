@@ -250,7 +250,7 @@ func reconcileTransfers(context.Context) {
 	other := matchTransfers(batch, receivableOrdersSince(time.Now().Add(-reconcileWindow)))
 	if matched := len(batch) - len(other); matched > 0 {
 		log.Task.Warn(fmt.Sprintf("对账补认单 %d 笔（此前匹配失败或迟到支付）", matched))
-		scanAlert("reconcile_matched", 10*time.Minute, "对账补认单",
+		scanNotice("reconcile_matched", 10*time.Minute, "对账补认单",
 			fmt.Sprintf("对账任务为 %d 笔此前未匹配的入账补认了订单，订单已进入确认流程。\n如果经常出现，说明实时匹配阶段存在问题，请查看 task.log。", matched))
 	}
 }

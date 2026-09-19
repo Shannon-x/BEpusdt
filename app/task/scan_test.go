@@ -11,6 +11,7 @@ import (
 	"github.com/smallnest/chanx"
 	applog "github.com/v03413/bepusdt/app/log"
 	"github.com/v03413/bepusdt/app/model"
+	"github.com/v03413/go-cache"
 	"gorm.io/gorm"
 	"gorm.io/gorm/logger"
 )
@@ -40,6 +41,7 @@ func TestMain(m *testing.M) {
 	// 测试中把重试延迟压到毫秒级，并录制而不是发送告警
 	scanRetryBaseDelay = time.Millisecond
 	alertSender = func(string, string) {}
+	noticeSender = func(string, string) {}
 
 	code := m.Run()
 	applog.Close()
@@ -57,13 +59,55 @@ type recordedAlert struct {
 func recordAlerts(t *testing.T) *[]recordedAlert {
 	t.Helper()
 	alerts := make([]recordedAlert, 0)
-	old := alertSender
-	alertSender = func(title, text string) {
+	oldAlert, oldNotice := alertSender, noticeSender
+	record := func(title, text string) {
 		alerts = append(alerts, recordedAlert{title: title, text: text})
 	}
-	t.Cleanup(func() { alertSender = old })
+	alertSender, noticeSender = record, record
+	t.Cleanup(func() { alertSender, noticeSender = oldAlert, oldNotice })
 
 	return &alerts
+}
+
+// 告警分级：影响收款的走 Alert，运维提示走 Notice；notifier_alerts 决定是否推送
+func TestAlertLevelRoutesImportantAndNoticeSeparately(t *testing.T) {
+	oldAlert, oldNotice := alertSender, noticeSender
+	important, notices := 0, 0
+	alertSender = func(string, string) { important++ }
+	noticeSender = func(string, string) { notices++ }
+	t.Cleanup(func() { alertSender, noticeSender = oldAlert, oldNotice })
+
+	cache.Delete("scan_alert_lvl_a")
+	cache.Delete("scan_alert_lvl_b")
+	scanAlert("lvl_a", time.Minute, "重要", "x")
+	scanNotice("lvl_b", time.Minute, "提示", "y")
+
+	if important != 1 || notices != 1 {
+		t.Fatalf("alert=%d notice=%d，两类必须分别路由", important, notices)
+	}
+}
+
+func TestScanWorkersFallsBackToPerChainDefault(t *testing.T) {
+	model.SetK(model.BlockScanWorkers, "0")
+	model.RefreshC()
+	if got := scanWorkers(10); got != 10 {
+		t.Fatalf("未配置时应使用各链默认值，得到 %d", got)
+	}
+
+	model.SetK(model.BlockScanWorkers, "6")
+	model.RefreshC()
+	if got := scanWorkers(10); got != 6 {
+		t.Fatalf("配置值应生效，得到 %d", got)
+	}
+
+	model.SetK(model.BlockScanWorkers, "999")
+	model.RefreshC()
+	if got := scanWorkers(10); got != 64 {
+		t.Fatalf("应限制在 64 以内，得到 %d", got)
+	}
+
+	model.SetK(model.BlockScanWorkers, "0")
+	model.RefreshC()
 }
 
 func TestEndpointPickerSwitchesOnlyWhenFailedNodeIsCurrent(t *testing.T) {

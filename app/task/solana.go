@@ -34,6 +34,9 @@ import (
 // 每提升一个版本都需确认下方解析逻辑兼容（accountKeys + meta.loadedAddresses 的账户索引方式）。
 const solanaMaxTxVersion = 1
 
+// solanaScanWorkers Solana 区块解析默认并发数
+const solanaScanWorkers = 10
+
 type solana struct {
 	slotConfirmedOffset int
 	lastSlotNum         int
@@ -220,7 +223,9 @@ func (s *solana) blockTime(ctx context.Context, endpoint string, slot int) (time
 }
 
 func (s *solana) slotDispatch(ctx context.Context) {
-	p, err := ants.NewPoolWithFunc(3, s.slotParse)
+	// Solana 约每秒 2.5 个 slot，单次 getBlock 在公共节点常需 1~2 秒，
+	// 并发过低会直接追不上出块速度，这里默认给到 10
+	p, err := ants.NewPoolWithFunc(scanWorkers(solanaScanWorkers), s.slotParse)
 	if err != nil {
 		log.Task.Warn("Error creating pool:", err)
 

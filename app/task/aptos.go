@@ -241,7 +241,7 @@ func (a *aptos) lookbackVersion(ctx context.Context) {
 }
 
 func (a *aptos) versionDispatch(ctx context.Context) {
-	p, err := ants.NewPoolWithFunc(3, a.versionParse)
+	p, err := ants.NewPoolWithFunc(scanWorkers(3), a.versionParse)
 	if err != nil {
 		log.Task.Warn("aptos versionDispatch Error:", err)
 

@@ -293,7 +293,7 @@ func (e *evm) lookbackBlocks(ctx context.Context) {
 }
 
 func (e *evm) blockDispatch(ctx context.Context) {
-	p, err := ants.NewPoolWithFunc(3, e.getBlockByNumber)
+	p, err := ants.NewPoolWithFunc(scanWorkers(3), e.getBlockByNumber)
 	if err != nil {
 		log.Task.Warn("Error creating pool:", err)
 
