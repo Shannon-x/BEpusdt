@@ -129,6 +129,8 @@ func (Conf) Rpc(ctx *gin.Context) {
 		model.RpcEndpointTron,
 		model.RpcEndpointTronGridApiKey,
 		model.RpcGlobalConfigUrlTon,
+		model.RpcEndpointBinance,
+		model.RpcEndpointOkx,
 	}
 
 	var rpc = make(map[model.ConfKey]string)

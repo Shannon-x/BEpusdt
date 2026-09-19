@@ -287,6 +287,50 @@ var registry = map[TradeType]TradeTypeConf{
 		ExplorerFmt: "https://bscscan.com/tx/%s",
 		EndpointKey: RpcEndpointBsc,
 	},
+	UsdtBinance: {
+		Alias:        "USDT・Binance",
+		NetworkName:  "Binance",
+		Network:      conf.Binance,
+		Crypto:       USDT,
+		Decimal:      -8,
+		AmountRange:  usdGeneralRange,
+		EndpointKey:  RpcEndpointBinance,
+		AddrCaseSens: true,
+		Exchange:     true,
+	},
+	UsdcBinance: {
+		Alias:        "USDC・Binance",
+		NetworkName:  "Binance",
+		Network:      conf.Binance,
+		Crypto:       USDC,
+		Decimal:      -8,
+		AmountRange:  usdGeneralRange,
+		EndpointKey:  RpcEndpointBinance,
+		AddrCaseSens: true,
+		Exchange:     true,
+	},
+	UsdtOkx: {
+		Alias:        "USDT・OKX",
+		NetworkName:  "OKX",
+		Network:      conf.Okx,
+		Crypto:       USDT,
+		Decimal:      -8,
+		AmountRange:  usdGeneralRange,
+		EndpointKey:  RpcEndpointOkx,
+		AddrCaseSens: true,
+		Exchange:     true,
+	},
+	UsdcOkx: {
+		Alias:        "USDC・OKX",
+		NetworkName:  "OKX",
+		Network:      conf.Okx,
+		Crypto:       USDC,
+		Decimal:      -8,
+		AmountRange:  usdGeneralRange,
+		EndpointKey:  RpcEndpointOkx,
+		AddrCaseSens: true,
+		Exchange:     true,
+	},
 	TonGram: {
 		Alias:       "Ton・Gram",
 		NetworkName: "Ton",
@@ -327,6 +371,44 @@ func IsSupportedTradeType(t TradeType) bool {
 	_, ok := registry[t]
 
 	return ok
+}
+
+// TradeNetwork 交易类型所属网络
+func TradeNetwork(t TradeType) Network {
+	if c, ok := registry[t]; ok {
+		return c.Network
+	}
+
+	return ""
+}
+
+// IsExchange 交易类型是否为交易所内部转账
+func IsExchange(t TradeType) bool {
+	c, ok := registry[t]
+
+	return ok && c.Exchange
+}
+
+// IsExchangeNetwork 网络是否为交易所
+func IsExchangeNetwork(n Network) bool {
+	for _, t := range GetNetworkTrades(n) {
+		if IsExchange(t) {
+			return true
+		}
+	}
+
+	return false
+}
+
+// ExchangeTradeType 交易所网络 + 币种 → 交易类型
+func ExchangeTradeType(n Network, c Crypto) (TradeType, bool) {
+	for _, t := range GetNetworkTrades(n) {
+		if cfg := registry[t]; cfg.Exchange && cfg.Crypto == c {
+			return t, true
+		}
+	}
+
+	return "", false
 }
 
 func GetCrypto(t TradeType) (Crypto, error) {

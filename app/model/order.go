@@ -52,6 +52,12 @@ const (
 	UsdcAptos    TradeType = "usdc.aptos"
 	UsdtPlasma   TradeType = "usdt.plasma"
 	UsdtTon      TradeType = "usdt.ton"
+
+	// 交易所内部转账（地址为账户 UID）
+	UsdtBinance TradeType = "usdt.binance"
+	UsdcBinance TradeType = "usdc.binance"
+	UsdtOkx     TradeType = "usdt.okx"
+	UsdcOkx     TradeType = "usdc.okx"
 )
 
 const (
@@ -101,6 +107,7 @@ type MethodItem struct {
 	TokenNetName    string `json:"token_net_name"`
 	TokenCustomName string `json:"token_custom_name"`
 	IsPopular       bool   `json:"is_popular"`
+	Exchange        bool   `json:"exchange"` // 交易所内部转账：收银台展示 UID 与转账指引而非地址二维码
 }
 
 func (o *Order) SetCanceled() error {
@@ -301,6 +308,7 @@ func (o *Order) GetMethods(crypto Crypto) []MethodItem {
 			TokenNetName:    typeConf.NetworkName,
 			TokenCustomName: "",    // 暂为空
 			IsPopular:       false, // 暂为 false
+			Exchange:        typeConf.Exchange,
 		})
 	}
 
@@ -317,10 +325,11 @@ func (o *Order) GetMethods(crypto Crypto) []MethodItem {
 
 func (o *Order) Network() any {
 	type network struct {
-		Alias   string  `json:"alias"`
-		Name    string  `json:"name"`
-		Crypto  Crypto  `json:"crypto"`
-		Network Network `json:"network"`
+		Alias    string  `json:"alias"`
+		Name     string  `json:"name"`
+		Crypto   Crypto  `json:"crypto"`
+		Network  Network `json:"network"`
+		Exchange bool    `json:"exchange"`
 	}
 
 	var net = network{}
@@ -333,6 +342,7 @@ func (o *Order) Network() any {
 	net.Alias = info.Alias
 	net.Crypto = info.Crypto
 	net.Network = info.Network
+	net.Exchange = info.Exchange
 
 	return net
 }

@@ -62,7 +62,12 @@
             'transfer.copyAmount': '复制支付金额',
             'transfer.info': '转账信息',
             'transfer.title': '扫码或复制地址完成付款',
+            'transfer.exchangeTitle': '在交易所 App 内向以下账户 UID 转账',
             'transfer.address': '收款地址',
+            'transfer.account': '收款账户 UID',
+            'instruction.exchange': '在交易所 App 内使用「内部转账」向该 UID 转账，免手续费，请勿走链上提现',
+            'instruction.exchangeBinance': '币安 App → 资金 → 提现 → 「币安用户 / 内部转账」或 Binance Pay，收款方填该 Binance ID（Pay ID）',
+            'instruction.exchangeOkx': '欧易 App → 资产 → 提币 → 「内部转账」，收款方填该 UID',
             'instruction.networkDefault': '使用当前页面选择的网络',
             'instruction.networkUse': '使用当前页面选择的 {{network}} 网络',
             'instruction.amount': '精准转入金额',
@@ -123,7 +128,12 @@
             'transfer.copyAmount': '複製支付金額',
             'transfer.info': '轉帳資訊',
             'transfer.title': '掃描二維碼或複製地址完成付款',
+            'transfer.exchangeTitle': '在交易所 App 內向以下帳戶 UID 轉帳',
             'transfer.address': '收款地址',
+            'transfer.account': '收款帳戶 UID',
+            'instruction.exchange': '在交易所 App 內使用「內部轉帳」向該 UID 轉帳，免手續費，請勿走鏈上提現',
+            'instruction.exchangeBinance': '幣安 App → 資金 → 提現 → 「幣安用戶 / 內部轉帳」或 Binance Pay，收款方填該 Binance ID（Pay ID）',
+            'instruction.exchangeOkx': '歐易 App → 資產 → 提幣 → 「內部轉帳」，收款方填該 UID',
             'instruction.networkDefault': '使用目前頁面選擇的網路',
             'instruction.networkUse': '使用目前頁面選擇的 {{network}} 網路',
             'instruction.amount': '精準轉入金額',
@@ -181,7 +191,12 @@
             'transfer.copyAmount': 'Copy payment amount',
             'transfer.info': 'Transfer details',
             'transfer.title': 'Scan or copy the address to pay',
+            'transfer.exchangeTitle': 'Transfer to the account UID below inside the exchange app',
             'transfer.address': 'Receiving address',
+            'transfer.account': 'Receiving account UID',
+            'instruction.exchange': 'Use "internal transfer" inside the exchange app to this UID (no fee); do not use on-chain withdrawal',
+            'instruction.exchangeBinance': 'Binance App → Wallet → Withdraw → "Binance user / internal transfer" or Binance Pay, recipient = this Binance ID (Pay ID)',
+            'instruction.exchangeOkx': 'OKX App → Assets → Withdraw → "Internal transfer", recipient = this UID',
             'instruction.networkDefault': 'Use the selected network',
             'instruction.networkUse': 'Use the selected {{network}} network',
             'instruction.amount': 'Transfer the exact amount',
@@ -1302,13 +1317,33 @@
         var networkInstruction = $('#networkInstruction');
         var amountInstruction = $('#amountInstruction');
 
+        var isExchange = !!(paymentDetail.exchange || (paymentDetail.network && paymentDetail.network.exchange) || selectedMethod.exchange);
+        var qrConsole = $('.qr-console');
+        var addressLabel = $('.address-box.prominent label');
+        var transferTitle = $('.pay-head h2[data-i18n="transfer.title"]');
+
         if (payAmount) payAmount.textContent = amountText;
         if (payNetwork) payNetwork.textContent = networkText;
         setImageSource(payTokenIcon, tokenIconPath(selectedMethod.currency));
         setImageSource(payNetworkIcon, networkIconPath(selectedMethod));
         if (addressEl) addressEl.textContent = address;
-        if (networkInstruction) networkInstruction.textContent = t('instruction.networkUse', {network: networkText});
         if (amountInstruction) amountInstruction.textContent = t('instruction.amount');
+
+        if (isExchange) {
+            // 交易所内部转账：没有链上地址，隐藏二维码，展示账户 UID 与转账指引
+            if (qrConsole) qrConsole.style.display = 'none';
+            if (addressLabel) addressLabel.textContent = t('transfer.account');
+            if (transferTitle) transferTitle.textContent = t('transfer.exchangeTitle');
+            var network = String(selectedMethod.network || '').toLowerCase();
+            if (networkInstruction) networkInstruction.textContent = t(network === 'binance' ? 'instruction.exchangeBinance' : network === 'okx' ? 'instruction.exchangeOkx' : 'instruction.exchange');
+            renderQrCode('');
+            return;
+        }
+
+        if (qrConsole) qrConsole.style.display = '';
+        if (addressLabel) addressLabel.textContent = t('transfer.address');
+        if (transferTitle) transferTitle.textContent = t('transfer.title');
+        if (networkInstruction) networkInstruction.textContent = t('instruction.networkUse', {network: networkText});
 
         renderQrCode(address);
     }

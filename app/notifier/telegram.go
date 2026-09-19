@@ -82,16 +82,23 @@ func (t *Telegram) Success(o model.Order) {
 	)
 
 	t.sendMessage(&bot.SendMessageParams{
-		Text:      text,
-		ParseMode: models.ParseModeMarkdown,
-		ReplyMarkup: &models.InlineKeyboardMarkup{
-			InlineKeyboard: [][]models.InlineKeyboardButton{
-				{
-					models.InlineKeyboardButton{Text: "📝查看交易明细", URL: o.GetTxUrl()},
-				},
-			},
-		},
+		Text:        text,
+		ParseMode:   models.ParseModeMarkdown,
+		ReplyMarkup: urlButton("📝查看交易明细", o.GetTxUrl()),
 	})
+}
+
+// urlButton 单个链接按钮；URL 为空（如交易所内部转账没有链上详情）时不放按钮，避免 Telegram 拒绝整条消息
+func urlButton(text, url string) models.ReplyMarkup {
+	if url == "" {
+		return nil
+	}
+
+	return &models.InlineKeyboardMarkup{
+		InlineKeyboard: [][]models.InlineKeyboardButton{
+			{models.InlineKeyboardButton{Text: text, URL: url}},
+		},
+	}
 }
 
 func (t *Telegram) NotifyFail(o model.Order, reason string) {
@@ -128,15 +135,9 @@ func (t *Telegram) NotifyFail(o model.Order, reason string) {
 	)
 
 	t.sendMessage(&bot.SendMessageParams{
-		Text:      text,
-		ParseMode: models.ParseModeMarkdown,
-		ReplyMarkup: &models.InlineKeyboardMarkup{
-			InlineKeyboard: [][]models.InlineKeyboardButton{
-				{
-					models.InlineKeyboardButton{Text: "📝查看收款详情", CallbackData: o.GetTxUrl()},
-				},
-			},
-		},
+		Text:        text,
+		ParseMode:   models.ParseModeMarkdown,
+		ReplyMarkup: urlButton("📝查看收款详情", o.GetTxUrl()),
 	})
 }
 
@@ -153,15 +154,9 @@ func (t *Telegram) NonOrderTransfer(trans model.TronTransfer, wa model.Wallet) {
 	)
 
 	t.sendMessage(&bot.SendMessageParams{
-		Text:      text,
-		ParseMode: models.ParseModeMarkdown,
-		ReplyMarkup: models.InlineKeyboardMarkup{
-			InlineKeyboard: [][]models.InlineKeyboardButton{
-				{
-					models.InlineKeyboardButton{Text: "📝查看交易明细", URL: model.GetTxUrl(trans.TradeType, trans.TxHash)},
-				},
-			},
-		},
+		Text:        text,
+		ParseMode:   models.ParseModeMarkdown,
+		ReplyMarkup: urlButton("📝查看交易明细", model.GetTxUrl(trans.TradeType, trans.TxHash)),
 	})
 }
 

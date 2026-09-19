@@ -94,8 +94,12 @@
       <a-form-item field="name" label="钱包名称" validate-trigger="blur">
         <a-input v-model="addFrom.name" placeholder="请输入钱包名称" allow-clear />
       </a-form-item>
-      <a-form-item field="address" label="钱包地址" validate-trigger="blur">
-        <a-input v-model="addFrom.address" placeholder="请输入钱包地址" allow-clear />
+      <a-form-item field="address" :label="isExchangeType(addFrom.trade_type) ? '账户 UID' : '钱包地址'" validate-trigger="blur">
+        <a-input
+          v-model="addFrom.address"
+          :placeholder="isExchangeType(addFrom.trade_type) ? '请输入交易所账户 UID（纯数字）' : '请输入钱包地址'"
+          allow-clear
+        />
       </a-form-item>
       <a-form-item field="trade_type" label="交易类型" :rules="[{ required: true, message: '交易类型不能为空' }]">
         <a-select v-model="addFrom.trade_type" placeholder="请选择" allow-clear allow-search>
@@ -104,6 +108,23 @@
           </a-option>
         </a-select>
       </a-form-item>
+      <template v-if="isExchangeType(addFrom.trade_type)">
+        <a-form-item field="api_key" label="API Key" :rules="[{ required: true, message: '请输入只读 API Key' }]">
+          <a-input v-model="addFrom.api_key" placeholder="交易所只读 API Key" allow-clear />
+        </a-form-item>
+        <a-form-item field="api_secret" label="API Secret" :rules="[{ required: true, message: '请输入 API Secret' }]">
+          <a-input-password v-model="addFrom.api_secret" placeholder="API Secret" allow-clear />
+        </a-form-item>
+        <a-form-item v-if="isOkxType(addFrom.trade_type)" field="passphrase" label="Passphrase" :rules="[{ required: true, message: '请输入 Passphrase' }]">
+          <a-input-password v-model="addFrom.passphrase" placeholder="创建 API Key 时设置的 Passphrase" allow-clear />
+        </a-form-item>
+        <a-form-item>
+          <a-button type="outline" :loading="verifyLoading" @click="verifyCredential(addFrom)">校验凭证与 UID</a-button>
+          <template #help>
+            <span>只需要“读取”权限，建议绑定服务器 IP 白名单；保存时会自动校验凭证所属账户 UID 是否与填写一致。</span>
+          </template>
+        </a-form-item>
+      </template>
       <a-form-item field="other_notify" label="其他通知">
         <a-select v-model="addFrom.other_notify" placeholder="请选择" allow-clear>
           <a-option :value="0">关闭</a-option>
@@ -126,8 +147,12 @@
       <a-form-item field="name" label="钱包名称" validate-trigger="blur">
         <a-input v-model="modFrom.name" placeholder="请输入钱包名称" allow-clear />
       </a-form-item>
-      <a-form-item field="address" label="钱包地址" validate-trigger="blur">
-        <a-input v-model="modFrom.address" placeholder="请输入钱包地址" allow-clear />
+      <a-form-item field="address" :label="isExchangeType(modFrom.trade_type) ? '账户 UID' : '钱包地址'" validate-trigger="blur">
+        <a-input
+          v-model="modFrom.address"
+          :placeholder="isExchangeType(modFrom.trade_type) ? '请输入交易所账户 UID（纯数字）' : '请输入钱包地址'"
+          allow-clear
+        />
       </a-form-item>
       <a-form-item field="trade_type" label="交易类型" :rules="[{ required: true, message: '交易类型不能为空' }]">
         <a-select v-model="modFrom.trade_type" placeholder="请选择" allow-clear allow-search>
@@ -136,6 +161,20 @@
           </a-option>
         </a-select>
       </a-form-item>
+      <template v-if="isExchangeType(modFrom.trade_type)">
+        <a-form-item field="api_key" label="API Key">
+          <a-input v-model="modFrom.api_key" placeholder="留空表示不修改" allow-clear />
+        </a-form-item>
+        <a-form-item field="api_secret" label="API Secret">
+          <a-input-password v-model="modFrom.api_secret" placeholder="留空表示不修改" allow-clear />
+        </a-form-item>
+        <a-form-item v-if="isOkxType(modFrom.trade_type)" field="passphrase" label="Passphrase">
+          <a-input-password v-model="modFrom.passphrase" placeholder="留空表示不修改" allow-clear />
+        </a-form-item>
+        <a-form-item>
+          <a-button type="outline" :loading="verifyLoading" @click="verifyCredential(modFrom)">校验凭证与 UID</a-button>
+        </a-form-item>
+      </template>
       <a-form-item field="status" label="收款状态">
         <a-select v-model="modFrom.status" placeholder="请选择" allow-clear>
           <a-option :value="1">启用</a-option>
@@ -282,7 +321,7 @@
 </template>
 
 <script setup lang="ts">
-import { getWalletListAPI, delWalletAPI, addWalletAPI, modWalletAPI } from "@/api/modules/wallet/index";
+import { getWalletListAPI, delWalletAPI, addWalletAPI, modWalletAPI, verifyWalletExchangeAPI } from "@/api/modules/wallet/index";
 import { List, FormData, Pagination, AddForm, ModForm } from "./config";
 import { Notification } from "@arco-design/web-vue";
 import { useUserInfoStore } from "@/store/modules/user-info";
@@ -296,6 +335,30 @@ const formDialogWidth = computed(() => dialogWidth("40%"));
 const detailDialogWidth = computed(() => dialogWidth("680px"));
 
 const tradeTypeOptions = computed(() => Object.entries(userStores.trade_type).map(([value, label]) => ({ value, label })));
+
+// 交易所内部转账类型：地址为账户 UID，需要只读 API 凭证
+const isExchangeType = (tradeType?: string) => /\.(binance|okx)$/.test(tradeType || "");
+const isOkxType = (tradeType?: string) => /\.okx$/.test(tradeType || "");
+const verifyLoading = ref(false);
+const verifyCredential = async (form: { id?: number; trade_type: string; address: string; api_key?: string; api_secret?: string; passphrase?: string }) => {
+  verifyLoading.value = true;
+  try {
+    const res: any = await verifyWalletExchangeAPI({
+      id: form.id ?? 0,
+      trade_type: form.trade_type,
+      address: form.address,
+      api_key: form.api_key ?? "",
+      api_secret: form.api_secret ?? "",
+      passphrase: form.passphrase ?? ""
+    });
+    const uid = res?.data?.uid ?? res?.uid ?? "";
+    Notification.success(uid ? `凭证有效，账户 UID ${uid} 与填写一致` : "凭证有效");
+  } catch (error) {
+    Notification.error(error as any);
+  } finally {
+    verifyLoading.value = false;
+  }
+};
 
 const formData = reactive<FormData>({
   form: { name: "", trade_type: "", address: "" },
@@ -341,7 +404,10 @@ const addFrom = ref<AddForm>({
   address: "",
   trade_type: "",
   remark: "",
-  other_notify: 0
+  other_notify: 0,
+  api_key: "",
+  api_secret: "",
+  passphrase: ""
 });
 
 const modFrom = ref<ModForm>({
@@ -351,7 +417,10 @@ const modFrom = ref<ModForm>({
   trade_type: "",
   remark: "",
   other_notify: 0,
-  status: 1
+  status: 1,
+  api_key: "",
+  api_secret: "",
+  passphrase: ""
 });
 
 const pageChange = (page: number) => {

@@ -501,9 +501,44 @@ func expireWaitingOrders() {
 	}
 }
 
+const confirmingCacheKey = "confirming_trade_types"
+
+// confirmingTradeTypes 当前存在确认中订单的交易类型集合，缓存 2 秒；十几条链各自每 5 秒轮询时共用一次查询
+func confirmingTradeTypes() map[model.TradeType]bool {
+	if v, ok := cache.Get(confirmingCacheKey); ok {
+		return v.(map[model.TradeType]bool)
+	}
+
+	var types []model.TradeType
+	model.Db.Model(&model.Order{}).Where("status = ?", model.OrderStatusConfirming).Distinct("trade_type").Pluck("trade_type", &types)
+	set := make(map[model.TradeType]bool, len(types))
+	for _, t := range types {
+		set[t] = true
+	}
+	cache.Set(confirmingCacheKey, set, 2*time.Second)
+
+	return set
+}
+
 func getConfirmingOrders(tradeType []model.TradeType) []model.Order {
 	var orders = make([]model.Order, 0)
 	var data = make([]model.Order, 0)
+
+	if len(tradeType) > 0 { // 没有该链的确认中订单，直接返回，不查询
+		set := confirmingTradeTypes()
+		hit := false
+		for _, t := range tradeType {
+			if set[t] {
+				hit = true
+
+				break
+			}
+		}
+		if !hit {
+			return data
+		}
+	}
+
 	var db = model.Db.Where("status = ?", model.OrderStatusConfirming)
 	if len(tradeType) > 0 {
 		db = db.Where("trade_type in (?)", tradeType)

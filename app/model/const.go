@@ -25,6 +25,7 @@ type TradeTypeConf struct {
 	ExplorerFmt  string  // 区块浏览器交易链接格式化字符串，%s 位置替换为交易哈希
 	EndpointKey  ConfKey // RPC 端点配置键
 	AddrCaseSens bool    // 钱包地址是否大小写敏感，如果为 false 则会统一转为小写比较
+	Exchange     bool    // 交易所内部转账：地址为交易所账户 UID，没有链上交易，通过交易所 API 轮询入账
 }
 
 const (
@@ -67,6 +68,8 @@ const (
 	RpcEndpointTron           ConfKey = "rpc_endpoint_tron"              // TRON RPC节点
 	RpcEndpointTronGridApiKey ConfKey = "rpc_endpoint_tron_grid_api_key" // TRON RPC节点 TronGrid Api Key
 	RpcGlobalConfigUrlTon     ConfKey = "rpc_global_config_url_ton"      // Ton Global Config Url
+	RpcEndpointBinance        ConfKey = "rpc_endpoint_binance"           // Binance API 地址，逗号分隔多个备用域名
+	RpcEndpointOkx            ConfKey = "rpc_endpoint_okx"               // OKX API 地址
 
 	RateSyncCoingeckoApiUrl ConfKey = "rate_sync_coingecko_api_url" // 汇率同步 Coingecko Api URL
 	RateSyncCoingeckoApiKey ConfKey = "rate_sync_coingecko_api_key" // 汇率同步 Coingecko Api Key

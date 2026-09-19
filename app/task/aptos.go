@@ -161,6 +161,14 @@ func (a *aptos) syncVersionForward(ctx context.Context) {
 		return
 	}
 
+	// 链头陈旧检测：ledger_timestamp 为微秒
+	if headTime := time.UnixMicro(gjson.GetBytes(body, "ledger_timestamp").Int()); headIsStale(headTime) {
+		entry.WithFields(logrus.Fields{"head": now, "head_time": headTime.Format(time.DateTime)}).Warn("stale head: node is behind, switching endpoint")
+		a.rpc.failed(endpoint)
+
+		return
+	}
+
 	// lastVersion 是下一个待扫描版本；resumeFrom 以"最后已发出"语义工作，故 -1 / +1 换算
 	last := int64(a.lastVersion) - 1
 	if a.lastVersion == 0 {
@@ -272,10 +280,8 @@ func (a *aptos) versionParse(n any) {
 		"queue_length": a.queueFor(p).Len(),
 	})
 
-	// 任何失败路径都切换节点并退避重试，成功计数放在解析完成之后
-	fail := func(reason string, fields logrus.Fields) {
-		conf.RecordFailure(net)
-		a.rpc.failed(endpoint)
+	// retry 退避重试或放弃
+	retry := func(reason string, fields logrus.Fields) {
 		p.Attempt++
 		if delay, ok := scanRetryLater(a.queueFor(p), p, p.Attempt); ok {
 			entry.WithFields(fields).WithField("next_retry_in", delay.Round(time.Millisecond).String()).Warn("version scan failed, will retry: " + reason)
@@ -284,6 +290,24 @@ func (a *aptos) versionParse(n any) {
 		}
 
 		scanAbandon(net, int64(p.Start), int64(p.Start+p.Limit-1), p.JobID, reason, entry.WithFields(fields))
+	}
+
+	// fail 节点类失败：切换节点并退避重试，成功计数放在解析完成之后
+	fail := func(reason string, fields logrus.Fields) {
+		conf.RecordFailure(net)
+		a.rpc.failed(endpoint)
+		retry(reason, fields)
+	}
+
+	// unavailable 数据尚未可用（节点落后，返回的交易不足一个分片）：前两次原节点等待，持续不可用才切换
+	unavailable := func(reason string, fields logrus.Fields) {
+		if p.Attempt > 0 {
+			conf.RecordFailure(net)
+		}
+		if unavailableSwitch(p.Attempt) {
+			a.rpc.failed(endpoint)
+		}
+		retry(reason, fields)
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), scanRequestTimeout)
@@ -324,8 +348,16 @@ func (a *aptos) versionParse(n any) {
 		return
 	}
 
+	arr := gjson.ParseBytes(body).Array()
+	if len(arr) < p.Limit {
+		// 落后节点只返回了部分交易：不能把整个区间当作扫描完成
+		unavailable("partial chunk: ledger behind", logrus.Fields{"got": len(arr), "want": p.Limit})
+
+		return
+	}
+
 	transfers := make([]transfer, 0)
-	for _, trans := range gjson.ParseBytes(body).Array() {
+	for _, trans := range arr {
 		tsNano := trans.Get("timestamp").Int() * 1000
 		timestamp := time.Unix(tsNano/1e9, tsNano%1e9)
 

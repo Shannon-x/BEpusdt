@@ -279,6 +279,28 @@ func (t *lookbackTracker) inflight(network string) bool {
 	return ok
 }
 
+// ---- 多节点高度差 ----
+//
+// 同一条链配置多个节点（或单个负载均衡节点池）时，各节点高度可能不一致：
+//   - 链头只允许前进：落后节点报告的更低链头直接忽略，不回退、不重复下发；
+//   - 链头陈旧检测：头部同步时校验最新区块的时间戳，落后超过 staleHeadAfter 的节点视为停止同步，切换并跳过本轮；
+//   - "区块尚未可用"（EVM 返回 null、Solana -32004、Aptos 分片不足、Tron 空块）是时序问题：前两次在原节点等待，
+//     持续不可用才切换节点；首次等待不计入失败率；
+//   - EVM 日志按 blockHash 查询而不是按区间：保证日志与已校验的区块来自同一条链上的同一个块，节点没有该块会明确报错进入重试，
+//     不会因为节点池里某个节点落后而静默漏掉日志。
+
+const staleHeadAfter = 3 * time.Minute
+
+// headIsStale 链头区块时间明显落后于当前时间，说明节点落后或停止同步，不应以它为准下发区块
+func headIsStale(blockTime time.Time) bool {
+	return !blockTime.IsZero() && blockTime.Unix() > 0 && time.Since(blockTime) > staleHeadAfter
+}
+
+// unavailableSwitch 区块尚未可用时是否切换节点：前两次在原节点等待，持续不可用才切换
+func unavailableSwitch(attempt int) bool {
+	return attempt >= 2
+}
+
 // ---- RPC 节点：主备切换 ----
 //
 // rpc_endpoint_* 配置支持多个节点（逗号/空白分隔），首个为主节点。
@@ -419,8 +441,8 @@ func registerScanner(network string, status func() ScanStatus, replay func(from,
 	scanRegistry.Store(network, scanHandle{status: status, replay: replay})
 }
 
-// fillScanStatus 补齐各链通用字段
-func fillScanStatus(st *ScanStatus) {
+// fillScanStatus 补齐各链通用字段；jobs 为该网络各状态任务数（由调用方一次查出全部网络）
+func fillScanStatus(st *ScanStatus, jobs map[string]int64) {
 	if info, ok := conf.GetStats()[st.Network]; ok {
 		st.LastBlock = info.Block
 		st.LastSuccessAt = info.Time
@@ -429,7 +451,10 @@ func fillScanStatus(st *ScanStatus) {
 	st.LookbackActive = lookbackTrack.inflight(st.Network)
 	st.AbandonedBlocks = abandonedBlocks(st.Network)
 	st.CursorHeight = cursorOf(st.Network).current()
-	st.Jobs = model.ScanJobCounts(st.Network)
+	if jobs == nil {
+		jobs = map[string]int64{}
+	}
+	st.Jobs = jobs
 }
 
 // Overview 全局状态：各链扫描状态 + 回调 outbox + 未认单入账
@@ -459,9 +484,10 @@ func GetOverview() Overview {
 // Statuses 全部已启动扫描器的状态，按网络名排序
 func Statuses() []ScanStatus {
 	list := make([]ScanStatus, 0)
+	jobs := model.ScanJobCountsAll()
 	scanRegistry.Range(func(_, v any) bool {
 		st := v.(scanHandle).status()
-		fillScanStatus(&st)
+		fillScanStatus(&st, jobs[st.Network])
 		list = append(list, st)
 
 		return true
@@ -836,26 +862,43 @@ func waitQueueRoom[T any](ctx context.Context, q *chanx.UnboundedChan[T]) bool {
 	return true
 }
 
-// scanRequired 该网络当前是否需要扫块：有 MQTT 订阅、开启了钱包监控、或存在待支付/回溯窗口内的订单
+// scanRequired 该网络当前是否需要扫块：有 MQTT 订阅、开启了钱包监控、或存在待支付/回溯窗口内的订单。
+// 结果按网络集合缓存 3 秒：十几条链每几秒各自查一遍库会产生大量重复查询，这里两条 SQL 覆盖全部网络。
 func scanRequired(network string) bool {
 	if mqttSubscribed(network) {
 		return true
 	}
 
-	trades := model.GetNetworkTrades(model.Network(network))
-	if len(trades) == 0 {
-		return false
+	return scanRequiredSet()[network]
+}
+
+const scanRequiredCacheKey = "scan_required_networks"
+
+func scanRequiredSet() map[string]bool {
+	if v, ok := cache.Get(scanRequiredCacheKey); ok {
+		return v.(map[string]bool)
 	}
 
-	var count int64
-	model.Db.Model(&model.Wallet{}).
-		Where("other_notify = ? and trade_type in (?)", model.WaOtherEnable, trades).
-		Count(&count)
-	if count > 0 {
-		return true
+	set := make(map[string]bool)
+
+	var monitored []model.TradeType
+	model.Db.Model(&model.Wallet{}).Where("other_notify = ?", model.WaOtherEnable).Distinct("trade_type").Pluck("trade_type", &monitored)
+	for _, t := range monitored {
+		set[string(model.TradeNetwork(t))] = true
 	}
 
-	return hasLookbackOrders(trades)
+	var receivable []model.TradeType
+	model.Db.Model(&model.Order{}).
+		Where("status in (?)", receivableOrderStatuses()).
+		Where("expired_at > ?", time.Now().Add(model.GetLookbackHour())).
+		Distinct("trade_type").Pluck("trade_type", &receivable)
+	for _, t := range receivable {
+		set[string(model.TradeNetwork(t))] = true
+	}
+
+	cache.Set(scanRequiredCacheKey, set, 3*time.Second)
+
+	return set
 }
 
 // syncBreak 实时同步是否应暂停：实时队列拥堵，或当前没有任何扫块需求

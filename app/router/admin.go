@@ -28,6 +28,7 @@ func adminInit(e *gin.Engine) {
 		PostRegister(walletRtr, "/list", true, walletHdr.List)
 		PostRegister(walletRtr, "/mod", true, walletHdr.Mod)
 		PostRegister(walletRtr, "/del", true, walletHdr.Del)
+		PostRegister(walletRtr, "/exchange_verify", true, walletHdr.ExchangeVerify)
 	}
 
 	var orderRtr = e.Group("/api/order")

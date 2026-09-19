@@ -142,6 +142,27 @@ func ScanJobCounts(network string) map[string]int64 {
 	return counts
 }
 
+// ScanJobCountsAll 一次查询得到所有网络各状态的任务数量：network → status → count
+func ScanJobCountsAll() map[string]map[string]int64 {
+	type row struct {
+		Network string
+		Status  string
+		Count   int64
+	}
+	rows := make([]row, 0)
+	Db.Model(&ScanJob{}).Select("network, status, count(*) as count").Group("network, status").Scan(&rows)
+
+	out := make(map[string]map[string]int64)
+	for _, r := range rows {
+		if out[r.Network] == nil {
+			out[r.Network] = make(map[string]int64)
+		}
+		out[r.Network][r.Status] = r.Count
+	}
+
+	return out
+}
+
 func (j *ScanJob) MarkRunning() error {
 	j.Status = ScanJobStatusRunning
 

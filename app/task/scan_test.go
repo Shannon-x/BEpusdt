@@ -174,6 +174,21 @@ func TestReplayValidatesRangeAndDispatches(t *testing.T) {
 	}
 }
 
+func TestHeadIsStaleAndUnavailableSwitchPolicy(t *testing.T) {
+	if headIsStale(time.Time{}) || headIsStale(time.Unix(0, 0)) {
+		t.Fatal("unknown block time must not be treated as stale")
+	}
+	if headIsStale(time.Now().Add(-30 * time.Second)) {
+		t.Fatal("a recent head is not stale")
+	}
+	if !headIsStale(time.Now().Add(-10 * time.Minute)) {
+		t.Fatal("a head 10 minutes old is stale")
+	}
+	if unavailableSwitch(0) || unavailableSwitch(1) || !unavailableSwitch(2) {
+		t.Fatal("unavailable blocks must wait two attempts before switching endpoint")
+	}
+}
+
 func TestScanAlertIsRateLimited(t *testing.T) {
 	alerts := recordAlerts(t)
 

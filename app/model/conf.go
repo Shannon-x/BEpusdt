@@ -39,6 +39,8 @@ var defaultConf = map[ConfKey]string{
 	RpcEndpointAptos:        "https://aptos-rest.publicnode.com/",
 	RpcEndpointPlasma:       "https://rpc.plasma.to/",
 	RpcGlobalConfigUrlTon:   "https://ton.org/global-config.json",
+	RpcEndpointBinance:      "https://api.binance.com, https://api-gcp.binance.com, https://api1.binance.com",
+	RpcEndpointOkx:          "https://www.okx.com",
 	NotifyMaxRetry:          "10",
 	BlockHeightMaxDiff:      "1000",
 	BlockOffsetConfirm:      "0",

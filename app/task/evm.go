@@ -148,8 +148,9 @@ func (e *evm) syncBlocksForward(ctx context.Context) {
 	}
 
 	endpoint := e.rpcEndpoint()
-	entry := scanLogger(e.Network, endpoint, "eth_blockNumber", nil)
-	post := []byte(`{"jsonrpc":"2.0","method":"eth_blockNumber","params":[],"id":1}`)
+	entry := scanLogger(e.Network, endpoint, "eth_getBlockByNumber(latest)", nil)
+	// 用最新区块而不是 eth_blockNumber：顺带拿到时间戳，用于识别落后 / 停止同步的节点
+	post := []byte(`{"jsonrpc":"2.0","method":"eth_getBlockByNumber","params":["latest",false],"id":1}`)
 	req, err := http.NewRequestWithContext(ctx, "POST", endpoint, bytes.NewBuffer(post))
 	if err != nil {
 		entry.WithField("error", err.Error()).Warn("syncBlocksForward create request error")
@@ -198,9 +199,18 @@ func (e *evm) syncBlocksForward(ctx context.Context) {
 		return
 	}
 
-	var now = utils.HexStr2Int(res.Get("result").String()).Int64() - e.Block.RollDelayOffset
+	head := res.Get("result")
+	var now = utils.HexStr2Int(head.Get("number").String()).Int64() - e.Block.RollDelayOffset
 	if now <= 0 {
 		entry.WithField("body", bodySnippet(body)).Warn("syncBlocksForward invalid block number")
+		e.rpc.failed(endpoint)
+
+		return
+	}
+
+	headTime := time.Unix(utils.HexStr2Int(head.Get("timestamp").String()).Int64(), 0)
+	if headIsStale(headTime) {
+		entry.WithFields(logrus.Fields{"head": now, "head_time": headTime.Format(time.DateTime)}).Warn("stale head: node is behind, switching endpoint")
 		e.rpc.failed(endpoint)
 
 		return
@@ -209,6 +219,13 @@ func (e *evm) syncBlocksForward(ctx context.Context) {
 	var lastBlockNumber int64
 	if v, ok := chainBlockNum.Load(e.Network); ok {
 		lastBlockNumber = v.(int64)
+	}
+
+	// 落后节点报告的链头低于已下发高度：忽略，链头只允许前进
+	if lastBlockNumber > 0 && now < lastBlockNumber {
+		entry.WithFields(logrus.Fields{"head": now, "issued": lastBlockNumber}).Info("head behind issued height (lagging node), ignored")
+
+		return
 	}
 
 	// 启动时从持久化游标续扫；链头跳跃超出容忍度时记录 gap 任务后对齐链头
@@ -331,6 +348,17 @@ func (e *evm) scanBlocks(job evmBlock) {
 		e.retryBlocks(job, reason, entry.WithFields(fields))
 	}
 
+	// unavailable 区块尚未可用（节点落后）：前两次在原节点等待，持续不可用才切换；首次等待不计入失败率
+	unavailable := func(reason string, fields logrus.Fields) {
+		if job.Attempt > 0 {
+			conf.RecordFailure(e.Network)
+		}
+		if unavailableSwitch(job.Attempt) {
+			e.rpc.failed(endpoint)
+		}
+		e.retryBlocks(job, reason, entry.WithFields(fields))
+	}
+
 	items := make([]string, 0, job.To-job.From+1)
 	for i := job.From; i <= job.To; i++ {
 		items = append(items, fmt.Sprintf(`{"jsonrpc":"2.0","method":"eth_getBlockByNumber","params":["0x%x",%t],"id":%d}`, i, e.Native.Parse, i))
@@ -389,7 +417,7 @@ func (e *evm) scanBlocks(job evmBlock) {
 	}
 
 	nativeTransfers := make([]transfer, 0)
-	blockTimestamp := make(map[int64]time.Time)
+	blocks := make(map[int64]evmBlockRef)
 	for i := job.From; i <= job.To; i++ {
 		itm, ok := byId[i]
 		if !ok {
@@ -406,8 +434,8 @@ func (e *evm) scanBlocks(job evmBlock) {
 
 		result := itm.Get("result")
 		if !result.Exists() || result.Type == gjson.Null {
-			// 节点尚未同步到该高度，换个节点延迟重试
-			fail("block result is null", logrus.Fields{"block": i}, true)
+			// 节点尚未同步到该高度：时序问题，原节点等待，持续不可用才切换
+			unavailable("block result is null (node behind)", logrus.Fields{"block": i})
 
 			return
 		}
@@ -426,8 +454,15 @@ func (e *evm) scanBlocks(job evmBlock) {
 			return
 		}
 
+		hash := result.Get("hash").String()
+		if hash == "" {
+			fail("block hash missing", logrus.Fields{"block": i}, true)
+
+			return
+		}
+
 		blockTime := time.Unix(utils.HexStr2Int(ts.String()).Int64(), 0)
-		blockTimestamp[i] = blockTime
+		blocks[i] = evmBlockRef{Num: i, Hash: hash, Time: blockTime}
 
 		var array = result.Get("transactions").Array()
 		if e.Native.Parse && len(array) != 0 {
@@ -436,7 +471,7 @@ func (e *evm) scanBlocks(job evmBlock) {
 		}
 	}
 
-	transfers, err := e.parseEventTransfer(ctx, endpoint, job, blockTimestamp)
+	transfers, err := e.parseEventTransfer(ctx, endpoint, job, blocks)
 	if err != nil {
 		fail("eth_getLogs failed", logrus.Fields{"error": err.Error()}, true)
 
@@ -518,9 +553,18 @@ func (e *evm) parseNativeTransfer(array []gjson.Result, num int, timestamp time.
 	return nativeTransfers
 }
 
-// parseEventTransfer 通过 eth_getLogs 拉取 Transfer 事件。请求按当前网络启用的代币合约过滤，
-// 避免下载全链所有代币日志（免费 RPC 往往对此限流或直接拒绝）。
-func (e *evm) parseEventTransfer(ctx context.Context, endpoint string, b evmBlock, timestamp map[int64]time.Time) ([]transfer, error) {
+// evmBlockRef 已校验的区块引用：号、哈希、时间
+type evmBlockRef struct {
+	Num  int64
+	Hash string
+	Time time.Time
+}
+
+// parseEventTransfer 通过 eth_getLogs 拉取 Transfer 事件。
+// 每个区块按 blockHash 单独查询并合并成一个 JSON-RPC 批量请求（HTTP 次数与按区间查询相同）：
+//   - 日志一定来自已校验的那个块，不受节点池内高度差影响；节点没有该块会返回错误而不是静默返回空；
+//   - 请求按当前网络启用的代币合约过滤，避免下载全链所有代币日志。
+func (e *evm) parseEventTransfer(ctx context.Context, endpoint string, b evmBlock, blocks map[int64]evmBlockRef) ([]transfer, error) {
 	transfers := make([]transfer, 0)
 
 	contracts := model.GetNetworkContracts(model.Network(e.Network))
@@ -534,9 +578,17 @@ func (e *evm) parseEventTransfer(ctx context.Context, endpoint string, b evmBloc
 		addresses = append(addresses, fmt.Sprintf(`"%s"`, c))
 	}
 
-	post := []byte(fmt.Sprintf(`{"jsonrpc":"2.0","method":"eth_getLogs","params":[{"fromBlock":"0x%x","toBlock":"0x%x","address":[%s],"topics":["%s"]}],"id":1}`,
-		b.From, b.To, strings.Join(addresses, ","), evmTransferEvent))
-	req, err := http.NewRequestWithContext(ctx, "POST", endpoint, bytes.NewBuffer(post))
+	items := make([]string, 0, b.To-b.From+1)
+	for i := b.From; i <= b.To; i++ {
+		ref, ok := blocks[i]
+		if !ok {
+			return transfers, fmt.Errorf("block %d missing from validated batch", i)
+		}
+		items = append(items, fmt.Sprintf(`{"jsonrpc":"2.0","method":"eth_getLogs","params":[{"blockHash":"%s","address":[%s],"topics":["%s"]}],"id":%d}`,
+			ref.Hash, strings.Join(addresses, ","), evmTransferEvent, i))
+	}
+
+	req, err := http.NewRequestWithContext(ctx, "POST", endpoint, bytes.NewBuffer([]byte("["+strings.Join(items, ",")+"]")))
 	if err != nil {
 
 		return transfers, errors.Join(errors.New("eth_getLogs NewRequest Error"), err)
@@ -563,75 +615,82 @@ func (e *evm) parseEventTransfer(ctx context.Context, endpoint string, b evmBloc
 	}
 
 	data := gjson.ParseBytes(body)
-	if rpcErr, ok := parseRpcError(data); ok {
+	if !data.IsArray() {
+		if rpcErr, ok := parseRpcError(data); ok {
+			return transfers, fmt.Errorf("eth_getLogs rpc error code=%d message=%s", rpcErr.Code, rpcErr.Message)
+		}
 
-		return transfers, fmt.Errorf("eth_getLogs rpc error code=%d message=%s", rpcErr.Code, rpcErr.Message)
+		return transfers, fmt.Errorf("eth_getLogs batch response is not an array: %s", bodySnippet(body))
 	}
 
-	result := data.Get("result")
-	if !result.IsArray() {
-
-		return transfers, fmt.Errorf("eth_getLogs result is not an array: %s", bodySnippet(body))
+	byId := make(map[int64]gjson.Result)
+	for _, itm := range data.Array() {
+		byId[itm.Get("id").Int()] = itm
 	}
 
-	for _, itm := range result.Array() {
-		to := itm.Get("address").String()
-		tradeType, ok := model.GetContractTrade(to)
+	for i := b.From; i <= b.To; i++ {
+		itm, ok := byId[i]
 		if !ok {
-
-			continue
+			return transfers, fmt.Errorf("eth_getLogs batch response missing block %d", i)
+		}
+		if rpcErr, ok := parseRpcError(itm); ok {
+			return transfers, fmt.Errorf("eth_getLogs block %d rpc error code=%d message=%s", i, rpcErr.Code, rpcErr.Message)
+		}
+		result := itm.Get("result")
+		if !result.IsArray() {
+			return transfers, fmt.Errorf("eth_getLogs block %d result is not an array", i)
 		}
 
-		topics := itm.Get("topics").Array()
-		if len(topics) < 3 {
+		ref := blocks[i]
+		for _, log := range result.Array() {
+			to := log.Get("address").String()
+			tradeType, ok := model.GetContractTrade(to)
+			if !ok {
 
-			continue
+				continue
+			}
+
+			topics := log.Get("topics").Array()
+			if len(topics) < 3 || topics[0].String() != evmTransferEvent { // transfer event signature
+
+				continue
+			}
+
+			fromTopic, recvTopic := topics[1].String(), topics[2].String()
+			if len(fromTopic) < 66 || len(recvTopic) < 66 {
+
+				continue
+			}
+
+			dataHex := log.Get("data").String()
+			if len(dataHex) <= 2 {
+
+				continue
+			}
+
+			amount, ok := big.NewInt(0).SetString(dataHex[2:], 16)
+			if !ok || amount.Sign() <= 0 {
+
+				continue
+			}
+
+			if bh := log.Get("blockHash").String(); bh != "" && !strings.EqualFold(bh, ref.Hash) {
+				// 返回的日志不属于请求的块：节点数据不一致，整批重试
+				return transfers, fmt.Errorf("eth_getLogs block %d returned log of another block hash %s", i, bh)
+			}
+
+			transfers = append(transfers, transfer{
+				Network:     e.Network,
+				FromAddress: fmt.Sprintf("0x%s", fromTopic[26:]),
+				RecvAddress: fmt.Sprintf("0x%s", recvTopic[26:]),
+				Amount:      decimal.NewFromBigInt(amount, model.GetContractDecimal(to)),
+				TxHash:      log.Get("transactionHash").String(),
+				BlockNum:    int(ref.Num),
+				Timestamp:   ref.Time,
+				TradeType:   tradeType,
+				Index:       int(utils.HexStr2Int(log.Get("logIndex").String()).Int64()),
+			})
 		}
-
-		if topics[0].String() != evmTransferEvent { // transfer event signature
-
-			continue
-		}
-
-		fromTopic, recvTopic := topics[1].String(), topics[2].String()
-		if len(fromTopic) < 66 || len(recvTopic) < 66 {
-
-			continue
-		}
-
-		dataHex := itm.Get("data").String()
-		if len(dataHex) <= 2 {
-
-			continue
-		}
-
-		from := fmt.Sprintf("0x%s", fromTopic[26:])
-		recv := fmt.Sprintf("0x%s", recvTopic[26:])
-		amount, ok := big.NewInt(0).SetString(dataHex[2:], 16)
-		if !ok || amount.Sign() <= 0 {
-
-			continue
-		}
-
-		blockNum := utils.HexStr2Int(itm.Get("blockNumber").String()).Int64()
-		blockTime, ok := timestamp[blockNum]
-		if !ok {
-			// 日志所属区块不在本批次校验通过的区块内，数据不一致，整批重试
-
-			return transfers, fmt.Errorf("eth_getLogs returned log for block %d outside batch %d-%d", blockNum, b.From, b.To)
-		}
-
-		transfers = append(transfers, transfer{
-			Network:     e.Network,
-			FromAddress: from,
-			RecvAddress: recv,
-			Amount:      decimal.NewFromBigInt(amount, model.GetContractDecimal(to)),
-			TxHash:      itm.Get("transactionHash").String(),
-			BlockNum:    int(blockNum),
-			Timestamp:   blockTime,
-			TradeType:   tradeType,
-			Index:       int(utils.HexStr2Int(itm.Get("logIndex").String()).Int64()),
-		})
 	}
 
 	return transfers, nil

@@ -16,5 +16,7 @@
 |     Base     |                 |   `usdc.base`   |                |
 |    Plasma    |  `usdt.plasma`  |                 |                |
 |     Ton      |   `usdt.ton`    |                 |   `ton.gram`   |
+| Binance 内部转账 | `usdt.binance`  | `usdc.binance`  | 地址为 Binance ID，见 [配置说明](./faq/exchange.md) |
+|  OKX 内部转账  |   `usdt.okx`    |   `usdc.okx`    | 地址为 OKX UID，见 [配置说明](./faq/exchange.md) |
 
 ---

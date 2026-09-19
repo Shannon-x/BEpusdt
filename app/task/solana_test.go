@@ -286,6 +286,24 @@ func TestSolanaFailsOverToBackupEndpointOnRetry(t *testing.T) {
 	}
 }
 
+func TestSolanaPersistentlyUnavailableSlotSwitchesEndpoint(t *testing.T) {
+	const slot = 448096760
+	primary, _ := solanaRpcServer(t, func(string) (int, string) {
+		return 200, `{"jsonrpc":"2.0","id":1,"error":{"code":-32004,"message":"Block not available for slot 448096760"}}`
+	})
+	backup, _ := solanaRpcServer(t, func(string) (int, string) { return 200, "{}" })
+	s := newTestSolana(primary.URL, backup.URL)
+
+	s.scanSlot(solanaSlot{Slot: slot, Attempt: 2})
+
+	if _, ok := recvSlotRetry(t, s, 2*time.Second); !ok {
+		t.Fatal("unavailable slot must be retried")
+	}
+	if got := s.rpc.current(); got != backup.URL {
+		t.Fatalf("third consecutive not-available must switch to backup, got %s", got)
+	}
+}
+
 func TestSolanaBlockNotAvailableRetriesOnSameEndpoint(t *testing.T) {
 	const slot = 448096750
 	primary, _ := solanaRpcServer(t, func(string) (int, string) {

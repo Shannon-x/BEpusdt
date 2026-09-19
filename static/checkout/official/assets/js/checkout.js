@@ -683,8 +683,25 @@
         var paymentAddress = d.token || d.address || '';
         renderWalletAddress(paymentAddress);
         var addr = document.getElementById('addressLabelQ');
-        if (addr) addr.textContent = _t('receivingAddress', '收款地址');
-        $('#qrcode').empty().qrcode({ text: paymentAddress, width: 200, height: 200 });
+        var isExchange = !!(d.exchange || (d.network && d.network.exchange) || (d.selected_payment && d.selected_payment.exchange));
+        var qrWrapper = document.getElementById('qrWrapper');
+        var guide = document.getElementById('exchangeGuide');
+        if (isExchange) {
+            // 交易所内部转账：没有链上地址，展示账户 UID 与转账指引
+            if (addr) addr.textContent = _t('receivingAccount', '收款账户 UID');
+            document.getElementById('payNetworkQ').textContent = _t('exchangePrefix', '交易所内部转账 · ') + netName;
+            if (qrWrapper) qrWrapper.style.display = 'none';
+            $('#qrcode').empty();
+            if (guide) {
+                guide.style.display = 'block';
+                guide.textContent = _t('exchangeGuide_' + network, _t('exchangeGuide', '请在交易所 App 内向以下账户 UID 转账（内部转账免手续费），金额必须与页面一致；不要使用链上提现。'));
+            }
+        } else {
+            if (addr) addr.textContent = _t('receivingAddress', '收款地址');
+            if (qrWrapper) qrWrapper.style.display = '';
+            if (guide) { guide.style.display = 'none'; guide.textContent = ''; }
+            $('#qrcode').empty().qrcode({ text: paymentAddress, width: 200, height: 200 });
+        }
         updateQrPaymentLogo(currency, network);
         updateReselectButton();
         bindHelp('helpBtnQ', d.support_url);

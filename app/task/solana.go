@@ -165,6 +165,14 @@ func (s *solana) syncSlotForward(ctx context.Context) {
 		return
 	}
 
+	// 链头陈旧检测：落后 / 停止同步的节点不能作为下发依据
+	if headTime, ok := s.blockTime(ctx, endpoint, now); ok && headIsStale(headTime) {
+		entry.WithFields(logrus.Fields{"head": now, "head_time": headTime.Format(time.DateTime)}).Warn("stale head: node is behind, switching endpoint")
+		s.rpc.failed(endpoint)
+
+		return
+	}
+
 	// 启动时从持久化游标续扫；链头跳跃超出容忍度时记录 gap 任务后对齐链头
 	s.lastSlotNum = int(resumeFrom(conf.Solana, int64(s.lastSlotNum), int64(now), blockHeightTolerance()))
 
@@ -181,6 +189,34 @@ func (s *solana) syncSlotForward(ctx context.Context) {
 	}
 
 	s.lastSlotNum = now
+}
+
+// blockTime 查询 slot 的区块时间；失败或 slot 被跳过时返回 false（不影响主流程）
+func (s *solana) blockTime(ctx context.Context, endpoint string, slot int) (time.Time, bool) {
+	post := []byte(fmt.Sprintf(`{"jsonrpc":"2.0","id":1,"method":"getBlockTime","params":[%d]}`, slot))
+	req, err := http.NewRequestWithContext(ctx, "POST", endpoint, bytes.NewBuffer(post))
+	if err != nil {
+		return time.Time{}, false
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := s.client.Do(req)
+	if err != nil {
+		return time.Time{}, false
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil || resp.StatusCode != 200 {
+		return time.Time{}, false
+	}
+
+	result := gjson.GetBytes(body, "result")
+	if !result.Exists() || result.Type == gjson.Null || result.Int() <= 0 {
+		return time.Time{}, false
+	}
+
+	return time.Unix(result.Int(), 0), true
 }
 
 func (s *solana) slotDispatch(ctx context.Context) {
@@ -227,6 +263,17 @@ func (s *solana) scanSlot(job solanaSlot) {
 	fail := func(reason string, fields logrus.Fields, switchEndpoint bool) {
 		conf.RecordFailure(network)
 		if switchEndpoint {
+			s.rpc.failed(endpoint)
+		}
+		s.retrySlot(job, reason, entry.WithFields(fields))
+	}
+
+	// unavailable slot 尚未可用（未确认 / 节点落后）：前两次在原节点等待，持续不可用才切换；首次等待不计入失败率
+	unavailable := func(reason string, fields logrus.Fields) {
+		if job.Attempt > 0 {
+			conf.RecordFailure(network)
+		}
+		if unavailableSwitch(job.Attempt) {
 			s.rpc.failed(endpoint)
 		}
 		s.retrySlot(job, reason, entry.WithFields(fields))
@@ -282,8 +329,8 @@ func (s *solana) scanSlot(job solanaSlot) {
 
 			return
 		case solRpcBlockNotAvailable:
-			// 区块尚未确认，属于时序问题而非节点故障，原节点延迟重试
-			fail("block not available yet", rpcErr.fields(), false)
+			// 区块尚未确认，属于时序问题而非节点故障
+			unavailable("block not available yet", rpcErr.fields())
 
 			return
 		case solRpcUnsupportedTxVer:
@@ -300,8 +347,8 @@ func (s *solana) scanSlot(job solanaSlot) {
 
 	result := res.Get("result")
 	if !result.Exists() || result.Type == gjson.Null {
-		// 节点暂时没有该 slot 数据，换个节点延迟重试
-		fail("result is null", nil, true)
+		// 节点暂时没有该 slot 数据（落后）：原节点等待，持续不可用才切换
+		unavailable("result is null (node behind)", nil)
 
 		return
 	}

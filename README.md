@@ -40,6 +40,8 @@
 🔥 主流网络：TRON Ethereum BSC Polygon<br>
 ⚡ 其他网络： X-Layer Solana Aptos Arbitrum-One Base [完整列表](./docs/trade-type.md)
 
+🏦 交易所内部转账： Binance 币安 / OKX 欧易（免手续费、秒到）[配置说明](./docs/faq/exchange.md)
+
 - ✅ 完全兼容 `Epusdt` 插件无缝替换
 - ️✅ 支持主流区块网络 不仅限于`USDT`
 - ✅ 支持主流法定货币 汇率自动更新

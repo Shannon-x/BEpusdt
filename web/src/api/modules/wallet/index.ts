@@ -31,3 +31,11 @@ export const modWalletAPI = (data: any) => {
     data
   });
 };
+
+export const verifyWalletExchangeAPI = (data: any) => {
+  return axios({
+    url: "/api/wallet/exchange_verify",
+    method: "post",
+    data
+  });
+};

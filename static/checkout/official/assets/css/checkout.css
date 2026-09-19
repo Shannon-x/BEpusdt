@@ -716,3 +716,15 @@ body {
     .amount-fiat { font-size: 22px; }
     #paymentStage .amount-crypto-value { font-size: 26px; }
 }
+
+/* 交易所内部转账指引 */
+.exchange-guide {
+    margin: 0 24px 14px;
+    padding: 12px 14px;
+    border-radius: 12px;
+    background: rgba(240, 185, 11, 0.12);
+    border: 1px solid rgba(240, 185, 11, 0.35);
+    font-size: 13px;
+    line-height: 1.7;
+    word-break: break-word;
+}

@@ -40,5 +40,10 @@
   "paymentSuccessToast": "Payment successful",
   "canceledTitle": "Order Canceled",
   "canceledMessage": "This order has been canceled and can no longer be paid.<br>Please create a new order to continue.",
-  "orderCanceledToast": "Order canceled"
+  "orderCanceledToast": "Order canceled",
+  "receivingAccount": "Receiving account UID",
+  "exchangePrefix": "Exchange internal transfer · ",
+  "exchangeGuide": "Transfer to the account UID below inside the exchange app (internal transfer, no fee). The amount must match this page exactly; do not use on-chain withdrawal.",
+  "exchangeGuide_binance": "Binance App → Wallet → Withdraw → choose “Binance user / internal transfer”, or use Binance Pay, enter the Binance ID (Pay ID) below and send the exact amount shown. No fee. Do not choose on-chain withdrawal.",
+  "exchangeGuide_okx": "OKX App → Assets → Withdraw → choose “Internal transfer”, enter the UID below as recipient and send the exact amount shown. No fee. Do not choose on-chain withdrawal."
 }

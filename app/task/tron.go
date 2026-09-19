@@ -145,6 +145,14 @@ func (t *tron) syncBlocksForward(context.Context) {
 
 	var now = int(block.BlockHeader.RawData.Number)
 
+	// 链头陈旧检测：落后 / 停止同步的节点不能作为下发依据
+	if headTime := time.UnixMilli(block.GetBlockHeader().GetRawData().GetTimestamp()); headIsStale(headTime) {
+		scanLogger(conf.Tron, endpoint, "GetNowBlock2", logrus.Fields{"head": now, "head_time": headTime.Format(time.DateTime)}).Warn("stale head: node is behind, switching endpoint")
+		t.rpc.failed(endpoint)
+
+		return
+	}
+
 	// 启动时从持久化游标续扫；链头跳跃超出容忍度时记录 gap 任务后对齐链头
 	t.lastBlockNum = int(resumeFrom(conf.Tron, int64(t.lastBlockNum), int64(now), blockHeightTolerance()))
 
@@ -254,6 +262,21 @@ func (t *tron) blockParse(n any) {
 		t.rpc.failed(endpoint)
 		t.scheduleBlockRetry(num, 0)
 		scanLogger(conf.Tron, endpoint, "GetBlockByNum2", logrus.Fields{"block": num, "error": err2.Error()}).Warn("tron block scan failed, will retry")
+
+		return
+	}
+
+	// 落后节点对尚不存在的区块返回空块（没有区块头）：不能当作空区块成功
+	if header := bok.GetBlockHeader().GetRawData(); header == nil || int(header.GetNumber()) != num {
+		attempt := t.retryAttemptCount(num)
+		if attempt > 0 {
+			conf.RecordFailure(conf.Tron)
+		}
+		if unavailableSwitch(attempt) {
+			t.rpc.failed(endpoint)
+		}
+		t.scheduleBlockRetry(num, 0)
+		scanLogger(conf.Tron, endpoint, "GetBlockByNum2", logrus.Fields{"block": num, "attempt": attempt}).Warn("block not available yet (node behind), will retry")
 
 		return
 	}
@@ -612,6 +635,14 @@ func (t *tron) scheduleBlockRetry(num int, delay time.Duration) {
 	})
 	t.retryScheduled[num] = timer
 	t.retryMu.Unlock()
+}
+
+// retryAttemptCount 某区块已重试次数
+func (t *tron) retryAttemptCount(num int) int {
+	t.retryMu.Lock()
+	defer t.retryMu.Unlock()
+
+	return t.retryAttempts[num]
 }
 
 func (t *tron) resetBlockRetry(num int) {

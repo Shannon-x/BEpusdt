@@ -402,6 +402,7 @@ func (Epusdt) Info(ctx *gin.Context) {
 		"trade_id":      order.TradeId,                       // 交易编号
 		"order_id":      order.OrderId,                       // 商户订单
 		"trade_type":    order.TradeType,                     // 交易类型
+		"exchange":      model.IsExchange(order.TradeType),   // 交易所内部转账
 		"status":        order.Status,                        // 订单状态
 		"money":         order.Money,                         // 订单金额
 		"actual_amount": order.Amount,                        // 实付数额

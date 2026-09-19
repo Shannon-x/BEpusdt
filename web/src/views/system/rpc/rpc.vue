@@ -257,7 +257,9 @@ const networks = [
   { key: "rpc_endpoint_solana", label: "Solana RPC", icon: IconLink },
   { key: "rpc_endpoint_aptos", label: "Aptos RPC", icon: IconLink },
   { key: "rpc_endpoint_plasma", label: "Plasma RPC", icon: IconLink },
-  { key: "rpc_global_config_url_ton", label: "TON Global Config URL", icon: IconLink }
+  { key: "rpc_global_config_url_ton", label: "TON Global Config URL", icon: IconLink },
+  { key: "rpc_endpoint_binance", label: "Binance API", icon: IconLink },
+  { key: "rpc_endpoint_okx", label: "OKX API", icon: IconLink }
 ];
 
 // 所有网络（用于状态总览，statKey 对应 stats 中的 key）
@@ -272,7 +274,9 @@ const allNetworks = [
   { key: "rpc_endpoint_solana", statKey: "solana", label: "Solana", icon: IconLink, color: "#9945ff" },
   { key: "rpc_endpoint_aptos", statKey: "aptos", label: "Aptos", icon: IconLink, color: "#00c2cb" },
   { key: "rpc_endpoint_plasma", statKey: "plasma", label: "Plasma", icon: IconLink, color: "#ff6b35" },
-  { key: "rpc_global_config_url_ton", statKey: "ton", label: "TON", icon: IconLink, color: "#0088cc" }
+  { key: "rpc_global_config_url_ton", statKey: "ton", label: "TON", icon: IconLink, color: "#0088cc" },
+  { key: "rpc_endpoint_binance", statKey: "binance", label: "Binance", icon: IconLink, color: "#f0b90b" },
+  { key: "rpc_endpoint_okx", statKey: "okx", label: "OKX", icon: IconLink, color: "#111111" }
 ];
 
 interface StatInfo {

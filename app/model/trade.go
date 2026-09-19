@@ -47,7 +47,8 @@ func StartBuildOrder(p OrderParams) (Order, error) {
 	var order Order
 
 	if p.Address != "" {
-		if !utils.IsValidTronAddress(p.Address) &&
+		if !(IsExchange(p.TradeType) && IsExchangeUID(p.Address)) &&
+			!utils.IsValidTronAddress(p.Address) &&
 			!utils.IsValidEvmAddress(p.Address) &&
 			!utils.IsValidSolanaAddress(p.Address) &&
 			!utils.IsValidAptosAddress(p.Address) &&

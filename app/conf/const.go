@@ -24,6 +24,10 @@ const (
 	Arbitrum = "arbitrum"
 	Ethereum = "ethereum"
 	Base     = "base"
+
+	// 交易所内部转账：不经过区块链，通过交易所 API 轮询账户入账
+	Binance = "binance"
+	Okx     = "okx"
 )
 
 const (
