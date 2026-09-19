@@ -15,8 +15,8 @@ const (
 
 // 告警推送级别；无论哪一级，事件本身都会记入日志，这里只决定是否推送到通知渠道
 const (
-	AlertsOff       = "off"       // 全部不推送
-	AlertsImportant = "important" // 仅推送影响收款的告警（默认）
+	AlertsOff       = "off"       // 全部不推送（默认）
+	AlertsImportant = "important" // 仅推送影响收款的告警
 	AlertsAll       = "all"       // 连同运维提示一起推送
 )
 
@@ -120,13 +120,12 @@ func Welcome() {
 }
 
 // Alert 影响收款的告警（扫块停滞、区块放弃、回调失败、凭证失效等）；调用方负责限频。
-// notifier_alerts=off 时不推送。
+// 默认（notifier_alerts=off）只记日志不推送，需要时在后台改为 important / all。
 func Alert(title, text string) {
 	dispatchAlert(true, title, text)
 }
 
-// Notice 运维提示（版本升级、区间跳过、队列拥堵、对账补认单等）；
-// 仅在 notifier_alerts=all 时推送，默认只记日志。
+// Notice 运维提示（版本升级、区间跳过、队列拥堵、对账补认单等）；仅在 notifier_alerts=all 时推送。
 func Notice(title, text string) {
 	dispatchAlert(false, title, text)
 }
@@ -144,15 +143,15 @@ func dispatchAlert(important bool, title, text string) {
 	go notifier.Alert(title, text)
 }
 
-// shouldSend 按告警级别判断是否推送
+// shouldSend 按告警级别判断是否推送；未配置时按 off 处理
 func shouldSend(important bool, level string) bool {
 	switch level {
-	case AlertsOff:
-		return false
 	case AlertsAll:
 		return true
-	default: // important 或未配置
+	case AlertsImportant:
 		return important
+	default: // off 或未配置
+		return false
 	}
 }
 

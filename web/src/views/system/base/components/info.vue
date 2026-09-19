@@ -36,9 +36,9 @@
             extra="所有事件都会记入日志，这里只决定推送到通知渠道的范围"
           >
             <a-select v-model="form.notifier_alerts" placeholder="请选择">
-              <a-option value="important">仅影响收款（推荐）</a-option>
-              <a-option value="all">全部（含升级、区间跳过、队列拥堵等运维提示）</a-option>
-              <a-option value="off">全部关闭（只记日志）</a-option>
+              <a-option value="off">关闭（默认，只记日志）</a-option>
+              <a-option value="important">仅影响收款（扫块停滞、回调耗尽、凭证失效等）</a-option>
+              <a-option value="all">全部（再加升级、区间跳过、队列拥堵等运维提示）</a-option>
             </a-select>
           </a-form-item>
 
@@ -140,7 +140,7 @@ const form = ref({
   home_redirect_url: "",
   payment_lookback_hour: "",
   block_scan_workers: "0",
-  notifier_alerts: "important"
+  notifier_alerts: "off"
 });
 const rules = {
   block_height_max_diff: [
@@ -243,7 +243,7 @@ watch(
     form.value.block_height_max_diff = data.value.block_height_max_diff;
     form.value.block_offset_confirm = data.value.block_offset_confirm || "0";
     form.value.block_scan_workers = data.value.block_scan_workers ?? "0";
-    form.value.notifier_alerts = data.value.notifier_alerts || "important";
+    form.value.notifier_alerts = data.value.notifier_alerts || "off";
     form.value.notify_max_retry = data.value.notify_max_retry;
     form.value.payment_max_amount = data.value.payment_max_amount;
     form.value.payment_min_amount = data.value.payment_min_amount;

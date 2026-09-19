@@ -160,7 +160,7 @@ https://polygon.drpc.org, https://polygon-bor-rpc.publicnode.com, https://1rpc.i
 | `payment_lookback_hour` | 覆盖商户允许“重新打开订单”的时长，如 `24` | 订单过期后仍可被链上入账匹配的时间窗口，同时决定回溯扫描范围 |
 | `notify_max_retry` | `10` 或更大 | 商户回调失败的最大重试次数，第 N 次在确认时间后 2^N 分钟重试 |
 | `block_scan_workers` | `0`（各链默认：Solana 10 / EVM 3 / Tron 2 / Aptos 3） | 区块解析并发数。出现队列拥堵、区间跳过说明追不上出块，可调高；过高易触发 RPC 限流 |
-| `notifier_alerts` | `important` | 告警推送范围：`important` 仅影响收款、`all` 含运维提示、`off` 只记日志 |
+| `notifier_alerts` | `off`（默认） | 系统告警推送范围：`off` 只记日志、`important` 仅影响收款、`all` 含运维提示 |
 
 ### 扫描状态与补扫接口
 
@@ -221,7 +221,9 @@ bepusdt scan jobs --network polygon --limit 30
 
 需先在 `系统管理` -> `通知设置` 配置渠道。同一类告警对同一链限频。
 
-> 所有事件都会记入 `task.log`；`notifier_alerts` 只决定推送到通知渠道的范围，默认 `important`（下表标「运维提示」的几条默认不推送）。
+> **系统告警默认不推送**（`notifier_alerts=off`），所有事件仍会完整记入 `task.log`。
+> 需要时在后台「基础设置 → 告警推送范围」改为 `important`（只推下表「收款」级）或 `all`（全部）。
+> 商户侧的「收款成功 / 回调失败」通知是另一套机制，不受此配置影响。
 
 | 告警 | 级别 | 触发条件 | 限频 |
 |---|---|---|---|

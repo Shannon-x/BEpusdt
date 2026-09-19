@@ -18,7 +18,7 @@ func TestAlertLevelGate(t *testing.T) {
 	}{
 		{AlertsOff, false, false},
 		{AlertsImportant, true, false},
-		{"", true, false}, // 未配置时按 important
+		{"", false, false}, // 未配置时按 off
 		{AlertsAll, true, true},
 	}
 

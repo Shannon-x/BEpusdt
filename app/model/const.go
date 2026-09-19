@@ -90,7 +90,7 @@ const (
 	MqttTopicPrefix ConfKey = "mqtt_topic_prefix" // 消息发布 Topic 路径前缀
 	MqttNetworks    ConfKey = "mqtt_networks"     // 需要持续监控的区块网络
 
-	NotifierAlerts  ConfKey = "notifier_alerts"  // 告警推送级别：off 只记日志 / important 仅影响收款 / all 全部
+	NotifierAlerts  ConfKey = "notifier_alerts"  // 告警推送级别：off 只记日志（默认）/ important 仅影响收款 / all 全部
 	NotifierParams  ConfKey = "notifier_params"  // 通知参数 (token, chat_id, email
 	NotifierChannel ConfKey = "notifier_channel" // 通知渠道 (telegram, wechat, email
 

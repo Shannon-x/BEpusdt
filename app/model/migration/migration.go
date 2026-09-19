@@ -10,6 +10,7 @@ const TableName = "bep_migration"
 var migrations = []*gormigrate.Migration{
 	m202607081430DropOrderTradeTypeReselect(),
 	m202609191500BackfillNotifyOutbox(),
+	m202609191800NotifierAlertsDefaultOff(),
 }
 
 // Run 自动迁移表结构并执行版本化迁移；返回本次新建的数据表名，便于升级时在日志中确认
