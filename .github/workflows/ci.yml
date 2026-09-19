@@ -64,8 +64,8 @@ jobs:
           file: ./dockerfile
           platforms: linux/amd64
           push: false
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          cache-from: type=gha,scope=amd64
+          cache-to: type=gha,mode=max,scope=amd64
           build-args: |
             VERSION=pr-${{ github.event.pull_request.number }}-${{ github.sha }}
           tags: bepusdt:pr-${{ github.event.pull_request.number }}

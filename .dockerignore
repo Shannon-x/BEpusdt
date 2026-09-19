@@ -1,0 +1,14 @@
+.git
+.github
+.idea
+.DS_Store
+docs
+images
+*.md
+web/node_modules
+web/dist
+static/secure
+dist
+tmp
+*.log
+.env
