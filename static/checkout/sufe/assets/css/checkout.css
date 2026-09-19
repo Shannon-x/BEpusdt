@@ -1093,8 +1093,8 @@ body {
     top: 50%;
     left: 50%;
     transform: translate(-50%, -50%);
-    width: 38px;
-    height: 38px;
+    width: 44px;
+    height: 44px;
     border-radius: var(--radius-pill);
     background: var(--warm-white);
     border: 1px solid var(--hairline);
@@ -1104,24 +1104,55 @@ body {
     pointer-events: none;
 }
 
+.qr-logo-badge[hidden] { display: none; }
+
+/* 币种大图标居中，网络小徽标固定在右下角、带白边分隔，二者不会重叠 */
+.qr-logo-stack {
+    position: relative;
+    display: block;
+    width: 28px;
+    height: 28px;
+}
+
 .qr-token-logo {
-    width: 26px;
-    height: 26px;
+    display: block;
+    width: 28px;
+    height: 28px;
     object-fit: contain;
 }
 
 .qr-network-logo {
     position: absolute;
-    right: -2px;
-    bottom: -2px;
-    width: 15px;
-    height: 15px;
+    right: -9px;
+    bottom: -9px;
+    width: 18px;
+    height: 18px;
     padding: 1px;
     border-radius: var(--radius-pill);
     background: var(--warm-white);
-    border: 1px solid var(--hairline);
+    border: 2px solid var(--warm-white);
+    box-shadow: 0 0 0 1px var(--hairline);
     object-fit: contain;
 }
+
+.qr-network-logo[hidden],
+.qr-token-logo[hidden] { display: none; }
+
+/* 到账数额说明与转账须知重点条 */
+.amount-caption-row { padding-top: 0; }
+
+.amount-caption {
+    font-size: 12px;
+    line-height: 1.5;
+    color: var(--coral, #c9694a);
+}
+
+.instructions li.instr-highlight {
+    color: var(--ink, #181715);
+    font-weight: 600;
+}
+
+.instructions li.instr-highlight strong { color: var(--coral, #c9694a); }
 
 .address-section {
     width: 100%;

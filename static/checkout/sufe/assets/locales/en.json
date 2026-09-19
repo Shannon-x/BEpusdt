@@ -13,7 +13,7 @@
     "subtitleSelected": "Paying with <strong>{{token}} · {{networkName}}</strong>",
     "subtitlePay": "Please transfer over the <strong>{{networkName}}</strong> network",
     "networkBadge": "{{network}}",
-    "paymentAmount": "Amount due",
+    "paymentAmount": "Amount to receive",
     "merchantOrder": "Merchant order",
     "productName": "Product",
     "orderAmount": "Order total",
@@ -37,10 +37,10 @@
     "copyAddress": "Copy address",
     "reselectPayment": "Wrong payment method? Choose again",
     "instructionsTitle": "How to pay",
-    "selectInstr1": "Pick your preferred currency and network to start the transfer.",
+    "selectInstr1": "Choose your preferred token and network to pay",
     "instruction1": "You must transfer over the <strong>{{network}} network</strong> — never send {{warningToken}}.",
     "instruction1Native": "You must send {{token}} over the <strong>{{network}} network</strong> — never use another chain.",
-    "instruction2": "We confirm the receipt automatically once it lands on-chain.",
+    "instruction2": "The order is confirmed automatically once the funds arrive",
     "instruction3": "You pay the network fee: exactly <strong>{{amount}}</strong> must arrive — anything less cannot be confirmed automatically",
     "instruction4": "Any questions? Reach out to the merchant's support team.",
     "copied": "Copied",
@@ -86,6 +86,8 @@
     "subtitleExchange": "Send an internal transfer to the account UID below inside the <strong>{{networkName}}</strong> app",
     "instructionExchange": "Use <strong>internal transfer</strong> inside the exchange app to this UID (no fee); do not use on-chain withdrawal",
     "instructionExchangeBinance": "Binance App → Wallet → Withdraw → <strong>“Binance user / internal transfer”</strong>, or Binance Pay, recipient = this Binance ID (Pay ID); do not choose on-chain withdrawal",
-    "instructionExchangeOkx": "OKX App → Assets → Withdraw → <strong>“Internal transfer”</strong>, recipient = this UID; do not choose on-chain withdrawal"
+    "instructionExchangeOkx": "OKX App → Assets → Withdraw → <strong>“Internal transfer”</strong>, recipient = this UID; do not choose on-chain withdrawal",
+    "amountCaption": "You pay the network fee — this is the amount that must arrive",
+    "instructionFee": "You pay the network fee: the amount shown is the <strong>amount to receive</strong>. Make sure exactly <strong>{{amount}}</strong> arrives; if your wallet deducts the fee from the amount sent, add the fee on top"
   }
 }

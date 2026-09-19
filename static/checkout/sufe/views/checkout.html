@@ -41,8 +41,20 @@
             </a>
             <div class="language-switcher">
                 <select id="languageSwitcher" aria-label="Language" onchange="changeLanguage(this.value)">
-                    <option value="zh">中文</option>
+                    <option value="zh">简体中文</option>
+                    <option value="zh-TW">繁體中文</option>
                     <option value="en">English</option>
+                    <option value="ja">日本語</option>
+                    <option value="ko">한국어</option>
+                    <option value="ru">Русский</option>
+                    <option value="vi">Tiếng Việt</option>
+                    <option value="th">ไทย</option>
+                    <option value="id">Bahasa Indonesia</option>
+                    <option value="es">Español</option>
+                    <option value="pt">Português</option>
+                    <option value="fr">Français</option>
+                    <option value="de">Deutsch</option>
+                    <option value="tr">Türkçe</option>
                 </select>
             </div>
         </div>
@@ -66,11 +78,14 @@
     <div class="order-info">
         <div class="order-item">
             <span class="order-label">
-                <span data-i18n="payment.paymentAmount">付款数额</span>
+                <span data-i18n="payment.paymentAmount">到账数额</span>
                 <span class="copy-badge" onclick="copyAmount()" data-i18n="payment.copyHint">可复制</span>
             </span>
             <span class="order-value amount-value" id="payAmount" onclick="copyAmount()"
                   data-i18n="[title]payment.clickToCopy" title="点击复制金额"><span class="amount-num">---</span><svg class="copy-hint-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg></span>
+        </div>
+        <div class="order-item amount-caption-row">
+            <span class="amount-caption" id="amountCaption" data-i18n="payment.amountCaption">网络手续费由您承担，此数额为对方实际到账数额</span>
         </div>
         <div class="order-item">
             <span class="order-label" data-i18n="payment.merchantOrder">商户订单</span>
@@ -152,8 +167,10 @@
         <div class="qr-code">
             <div class="qr-canvas" id="qrcode"></div>
             <div class="qr-logo-badge" id="qrLogoBadge" aria-hidden="true" hidden>
-                <img class="qr-token-logo" id="qrTokenLogo" alt="">
-                <img class="qr-network-logo" id="qrNetworkLogo" alt="" hidden>
+                <span class="qr-logo-stack">
+                    <img class="qr-token-logo" id="qrTokenLogo" alt="">
+                    <img class="qr-network-logo" id="qrNetworkLogo" alt="" hidden>
+                </span>
             </div>
         </div>
         <div class="address-section">
@@ -171,14 +188,14 @@
         <h4 data-i18n="payment.instructionsTitle">转账须知</h4>
         <ol id="instrSelection">
             <li data-i18n="payment.selectInstr1">请选择您偏好的币种与网络发起转账</li>
-            <li data-i18n="payment.instruction2">转账完成后系统会自动确认到账</li>
-            <li data-i18n="[html]payment.instruction3">手续费由您承担，实际到账必须与显示金额完全一致</li>
+            <li class="instr-highlight" data-i18n="[html]payment.instructionFee">网络手续费由您承担：页面显示的是<strong>到账金额</strong>，请确保对方实际收到该数额；若钱包提示手续费从转账金额中扣除，请相应加上手续费</li>
+            <li data-i18n="payment.instruction2">到账后系统会自动确认，无需人工操作</li>
             <li data-i18n="payment.instruction4">如有其他疑问，请联系商户客服处理</li>
         </ol>
         <ol id="instrPayment" hidden>
             <li data-i18n="[html]payment.instruction1">请务必使用指定网络转账，请勿误转其他资产！</li>
-            <li data-i18n="payment.instruction2">转账完成后系统会自动确认到账</li>
-            <li data-i18n="[html]payment.instruction3">手续费由您承担，实际到账必须与显示金额完全一致</li>
+            <li class="instr-highlight" data-i18n="[html]payment.instructionFee">网络手续费由您承担：页面显示的是<strong>到账金额</strong>，请确保对方实际收到该数额；若钱包提示手续费从转账金额中扣除，请相应加上手续费</li>
+            <li data-i18n="payment.instruction2">到账后系统会自动确认，无需人工操作</li>
             <li data-i18n="payment.instruction4">如有其他疑问，请联系商户客服处理</li>
         </ol>
     </div>

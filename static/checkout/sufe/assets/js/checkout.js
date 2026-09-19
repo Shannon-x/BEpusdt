@@ -48,6 +48,19 @@
 
     let i18nInitialized = false;
     let currentLang = 'zh';
+    /* 支持的界面语言；navigator.language 归一化到其中之一，找不到退回 en */
+    const SUPPORTED_LANGS = ['zh', 'zh-TW', 'en', 'ja', 'ko', 'ru', 'vi', 'th', 'id', 'es', 'pt', 'fr', 'de', 'tr'];
+    const HTML_LANG = { zh: 'zh-CN', 'zh-TW': 'zh-TW', pt: 'pt-BR' };
+
+    function normalizeLang(raw) {
+        const value = String(raw || '').trim();
+        if (!value) return '';
+        if (SUPPORTED_LANGS.indexOf(value) !== -1) return value;
+        const lowerValue = value.toLowerCase();
+        if (lowerValue === 'zh-tw' || lowerValue === 'zh-hk' || lowerValue === 'zh-mo' || lowerValue === 'zh-hant') return 'zh-TW';
+        const base = lowerValue.split('-')[0];
+        return SUPPORTED_LANGS.indexOf(base) !== -1 ? base : '';
+    }
 
     let tradeId = '';
     let orderData = null;
@@ -146,11 +159,12 @@
         } catch (e) {
             lang = '';
         }
+        lang = normalizeLang(lang);
         if (!lang) {
-            const nav = (navigator.language || navigator.userLanguage || 'en');
-            lang = String(nav).split('-')[0];
+            const candidates = (navigator.languages && navigator.languages.length) ? navigator.languages : [navigator.language || navigator.userLanguage || 'en'];
+            for (let i = 0; i < candidates.length && !lang; i++) lang = normalizeLang(candidates[i]);
         }
-        return (lang === 'zh' || lang === 'en') ? lang : 'en';
+        return lang || 'en';
     }
 
     function initI18n() {
@@ -163,7 +177,7 @@
                 return;
             }
 
-            i18next.init({ lng: currentLang, debug: false, resources: {} }, function (err) {
+            i18next.init({ lng: currentLang, fallbackLng: 'en', debug: false, resources: {} }, function (err) {
                 if (err) {
                     console.error('i18next initialization failed:', err);
                     resolve();
@@ -189,7 +203,8 @@
 
     function changeLanguage(lang) {
         if (typeof i18next === 'undefined') return;
-        if (lang !== 'zh' && lang !== 'en') return;
+        lang = normalizeLang(lang);
+        if (!lang) return;
 
         const done = function () {
             currentLang = lang;
@@ -337,7 +352,7 @@
 
         try {
             document.title = t('payment.pageTitle', '苏菲家宽 · 收银台');
-            document.documentElement.lang = currentLang === 'zh' ? 'zh-CN' : 'en';
+            document.documentElement.lang = HTML_LANG[currentLang] || currentLang;
         } catch (e) { /* noop */ }
     }
 
