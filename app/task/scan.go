@@ -1066,9 +1066,10 @@ func scanRequiredSet() map[string]bool {
 	}
 
 	var receivable []model.TradeType
+	// 历史补扫后的 confirming 仍需链头推进确认偏移，不能被订单回溯窗口截断。
 	model.Db.Model(&model.Order{}).
-		Where("status in (?)", receivableOrderStatuses()).
-		Where("expired_at > ?", time.Now().Add(model.GetLookbackHour())).
+		Where("status = ? or (status in (?) and expired_at > ?)", model.OrderStatusConfirming,
+			[]int{model.OrderStatusWaiting, model.OrderStatusExpired}, time.Now().Add(model.GetLookbackHour())).
 		Distinct("trade_type").Pluck("trade_type", &receivable)
 	for _, t := range receivable {
 		set[string(model.TradeNetwork(t))] = true
