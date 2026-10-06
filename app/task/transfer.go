@@ -538,7 +538,7 @@ func receivableOrdersForTransfers(batch []transfer) (map[string][]model.Order, e
 		recvAddresses = append(recvAddresses, address)
 	}
 	var orders []model.Order
-	err = model.Db.Where("status in (?) and ref_hash = ''", []int{model.OrderStatusWaiting, model.OrderStatusExpired}).
+	err = model.Db.Where("status in (?) and (ref_hash = '' or ref_hash = trade_id)", []int{model.OrderStatusWaiting, model.OrderStatusExpired}).
 		Where("created_at < ? and expired_at > ?", maxTime, minTime).
 		Where("trade_type in (?) and (match_address in (?) or (match_address = '' and address in (?)))", tradeTypes, recvAddresses, recvAddresses).
 		Order("created_at asc, id asc").Find(&orders).Error

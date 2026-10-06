@@ -20,11 +20,58 @@ func recoveryTransfer(address, hash, amount string, at time.Time) transfer {
 	return transfer{Network: conf.Ethereum, TxHash: hash, Index: 0, Amount: decimal.RequireFromString(amount), FromAddress: "payer", RecvAddress: address, Timestamp: at, TradeType: model.UsdtErc20, BlockNum: 1234}
 }
 
+func TestRealOrderCreationPlaceholderAndFullPaymentMatch(t *testing.T) {
+	const addr = "0x5555555555555555555555555555555555555508"
+	ensureWallet(t, model.UsdtErc20, addr)
+	rate := model.Rate{Rate: "7", RawRate: 7, Fiat: "CNY", Crypto: "USDT"}
+	if err := model.Db.Create(&rate).Error; err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { model.Db.Delete(&rate) })
+	for _, fullPayment := range []bool{false, true} {
+		t.Run(fmt.Sprintf("full_payment_%t", fullPayment), func(t *testing.T) {
+			money := decimal.RequireFromString("7")
+			paid := "1"
+			if fullPayment {
+				money, paid = decimal.Zero, "5.123"
+			}
+			order, err := model.StartBuildOrder(model.OrderParams{
+				Money: money, Fiat: "CNY", TradeType: model.UsdtErc20, Address: addr,
+				OrderId: fmt.Sprintf("real-create-recovery-%t-%d", fullPayment, time.Now().UnixNano()),
+				ApiType: model.OrderApiTypeEpusdt, Rate: "7", Timeout: 1200, AddressLocked: fullPayment,
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if order.RefHash != order.TradeId || order.ConfirmedAt == nil || !order.ConfirmedAt.Equal(time.Unix(0, 0)) || order.AddressLocked != fullPayment {
+				t.Fatalf("unexpected actual creation defaults: %+v", order)
+			}
+			paidAt := order.CreatedAt.Time().Add(time.Second).Truncate(time.Second)
+			tr := recoveryTransfer(addr, "real-created-payment-"+order.TradeId, paid, paidAt)
+			other, err := processTransferBatch([]transfer{tr})
+			if err != nil || len(other) != 0 {
+				t.Fatalf("real initial placeholder order must match: %v %v", other, err)
+			}
+			got, _ := model.GetOrderByID(order.ID)
+			if got.Status != model.OrderStatusConfirming || got.RefHash != tr.TxHash || got.ConfirmedAt == nil || !got.ConfirmedAt.Equal(paidAt) {
+				t.Fatalf("real created order did not enter confirming correctly: %+v", got)
+			}
+			if fullPayment && (got.Amount != paid || got.Money != "35.861") {
+				t.Fatalf("full payment must retain actual amount and fiat conversion: amount=%s money=%s", got.Amount, got.Money)
+			}
+		})
+	}
+}
+
 func TestHistoricalReplayMatchesOrderAtPaymentTime(t *testing.T) {
 	const addr = "0x5555555555555555555555555555555555555501"
 	ensureWallet(t, model.UsdtErc20, addr)
 	paidAt := time.Now().Add(-5 * 24 * time.Hour).Truncate(time.Second)
 	order := newTestOrder(t, model.UsdtErc20, addr, "12.3400", model.OrderStatusExpired, paidAt.Add(-time.Minute), paidAt.Add(time.Minute), "")
+	// 真实创建订单将 ref_hash 初始化为 trade_id，占位值也必须属于尚未付款状态。
+	if err := model.Db.Model(&order).Update("ref_hash", order.TradeId).Error; err != nil {
+		t.Fatal(err)
+	}
 	wrongAmount := newTestOrder(t, model.UsdtErc20, addr, "12.35", model.OrderStatusExpired, paidAt.Add(-time.Minute), paidAt.Add(time.Minute), "")
 	wrongCurrency := newTestOrder(t, model.UsdcErc20, addr, "12.34", model.OrderStatusExpired, paidAt.Add(-time.Minute), paidAt.Add(time.Minute), "")
 	expiredBeforePayment := newTestOrder(t, model.UsdtErc20, addr, "12.34", model.OrderStatusExpired, paidAt.Add(-2*time.Minute), paidAt.Add(-time.Minute), "")

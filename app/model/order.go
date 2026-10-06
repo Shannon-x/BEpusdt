@@ -189,7 +189,7 @@ func (o *Order) markConfirming(db *gorm.DB, blockNum int, from, hash string, at 
 	}
 
 	res := db.Model(&Order{}).
-		Where("id = ? and status in (?) and ref_hash = ''", o.ID, []int{OrderStatusWaiting, OrderStatusExpired}).
+		Where("id = ? and status in (?) and (ref_hash = '' or ref_hash = trade_id)", o.ID, []int{OrderStatusWaiting, OrderStatusExpired}).
 		Where("trade_type = ? and address = ? and match_address = ? and amount = ? and address_locked = ?", o.TradeType, o.Address, o.MatchAddress, o.Amount, o.AddressLocked).
 		Where("created_at < ? and expired_at > ? and expired_at = ?", at, at, o.ExpiredAt).
 		Updates(updates)
