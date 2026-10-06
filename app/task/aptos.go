@@ -112,6 +112,7 @@ func (a *aptos) replay(from, to, jobID int64) int {
 		if i+limit-1 > int(to) {
 			limit = int(to) - i + 1
 		}
+		scanJobPartQueued(jobID, int64(i))
 		a.lookbackQueue.In <- version{Start: i, Limit: limit, Lookback: true, JobID: jobID}
 		n++
 	}
@@ -174,7 +175,13 @@ func (a *aptos) syncVersionForward(ctx context.Context) {
 	if a.lastVersion == 0 {
 		last = 0
 	}
-	a.lastVersion = int(resumeFrom(conf.Aptos, last, int64(now), aptosHeightTolerance)) + 1
+	resumed, err := resumeFrom(conf.Aptos, last, int64(now), aptosHeightTolerance)
+	if err != nil {
+		entry.WithError(err).Warn("aptos cursor recovery failed")
+
+		return
+	}
+	a.lastVersion = int(resumed) + 1
 	if a.lastVersion >= now {
 
 		return
@@ -502,6 +509,11 @@ func (a *aptos) versionParse(n any) {
 		generateTransfers(usdcDeposits, usdcFrom, model.UsdcAptos, model.GetTradeDecimal(model.UsdcAptos))
 	}
 
+	if err := persistTransfers(transfers); err != nil {
+		conf.RecordFailure(net)
+		retry("persist transfers failed", logrus.Fields{"error": err.Error()})
+		return
+	}
 	if len(transfers) > 0 {
 
 		transferQueue.In <- transfers
@@ -513,7 +525,7 @@ func (a *aptos) versionParse(n any) {
 		cursorOf(net).complete(int64(p.Start), int64(p.Start+p.Limit-1))
 	}
 	if p.JobID != 0 {
-		scanJobPartDone(p.JobID)
+		scanJobPartDone(p.JobID, int64(p.Start))
 	}
 
 	log.Task.Info(fmt.Sprintf("区块扫描完成(Aptos) %d.%d 成功率：%s", p.Start, p.Limit, conf.GetSuccessRate(net)))

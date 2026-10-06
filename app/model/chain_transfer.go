@@ -1,8 +1,12 @@
 package model
 
 import (
+	"errors"
+	"fmt"
 	"time"
 
+	"github.com/shopspring/decimal"
+	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 )
 
@@ -35,33 +39,116 @@ func (ChainTransfer) TableName() string {
 	return "bep_chain_transfer"
 }
 
-// SaveChainTransfers 幂等写入：唯一键冲突直接忽略
+// SaveChainTransfers 幂等写入：重复事件只刷新最后补录时间，不覆盖付款信息或匹配状态。
+// 历史未匹配流水被重新扫描后，进程即使在认单前退出，对账仍能按最近补录时间恢复。
 func SaveChainTransfers(list []ChainTransfer) error {
 	if len(list) == 0 {
 		return nil
 	}
 
-	return Db.Clauses(clause.OnConflict{DoNothing: true}).CreateInBatches(list, 100).Error
+	return Db.Clauses(clause.OnConflict{
+		Columns:   []clause.Column{{Name: "network"}, {Name: "tx_hash"}, {Name: "event_index"}},
+		DoUpdates: clause.Assignments(map[string]any{"updated_at": time.Now()}),
+	}).CreateInBatches(list, 100).Error
 }
 
-func MarkChainTransferMatched(network, txHash string, eventIndex int, orderID int64) error {
-	return Db.Model(&ChainTransfer{}).
-		Where("network = ? and tx_hash = ? and event_index = ?", network, txHash, eventIndex).
-		Updates(map[string]any{"match_status": ChainTransferMatched, "order_id": orderID}).Error
+var ErrChainTransferAlreadyMatched = errors.New("chain transfer has already been matched")
+
+func ChainTransferKey(network, txHash string, eventIndex int) string {
+	return fmt.Sprintf("%s:%s:%d", network, txHash, eventIndex)
 }
 
-// UnmatchedChainTransfers 指定时间之后仍未匹配到订单的入账
+// MatchedChainTransferKeys 批量识别已消费的事件，重复回放不发送非订单到账通知。
+func MatchedChainTransferKeys(events []ChainTransfer) (map[string]struct{}, error) {
+	keys := make(map[string]struct{})
+	if len(events) == 0 {
+		return keys, nil
+	}
+	networkSet, hashSet := make(map[string]struct{}), make(map[string]struct{})
+	for _, event := range events {
+		networkSet[event.Network] = struct{}{}
+		hashSet[event.TxHash] = struct{}{}
+	}
+	networks, hashes := make([]string, 0, len(networkSet)), make([]string, 0, len(hashSet))
+	for network := range networkSet {
+		networks = append(networks, network)
+	}
+	for hash := range hashSet {
+		hashes = append(hashes, hash)
+	}
+	for start := 0; start < len(hashes); start += 500 {
+		var rows []ChainTransfer
+		if err := Db.Select("network", "tx_hash", "event_index").
+			Where("match_status = ? and network in (?) and tx_hash in (?)", ChainTransferMatched, networks, hashes[start:min(start+500, len(hashes))]).Find(&rows).Error; err != nil {
+			return nil, err
+		}
+		for _, row := range rows {
+			keys[ChainTransferKey(row.Network, row.TxHash, row.EventIndex)] = struct{}{}
+		}
+	}
+	return keys, nil
+}
+
+// MatchChainTransfer 原子领取一笔未匹配入账并更新可收款订单。
+// 流水或订单已被其他 worker 领取时不修改任何一方，重复扫描不能让同一付款认第二单。
+func MatchChainTransfer(o *Order, network, txHash string, eventIndex, blockNum int, from, to string, at time.Time, amount decimal.Decimal) (bool, error) {
+	claimed := false
+	updated := *o
+	err := Db.Transaction(func(tx *gorm.DB) error {
+		res := tx.Model(&ChainTransfer{}).
+			Where("network = ? and tx_hash = ? and event_index = ? and match_status = ? and order_id = 0", network, txHash, eventIndex, ChainTransferUnmatched).
+			Where("to_address = ? and trade_type = ? and amount = ? and block_time = ? and block_num = ?", to, o.TradeType, amount.String(), at, blockNum).
+			Updates(map[string]any{"match_status": ChainTransferMatched, "order_id": o.ID})
+		if res.Error != nil {
+			return res.Error
+		}
+		if res.RowsAffected != 1 {
+			var existing ChainTransfer
+			if err := tx.Select("match_status").Where("network = ? and tx_hash = ? and event_index = ?", network, txHash, eventIndex).
+				Limit(1).Find(&existing).Error; err != nil {
+				return err
+			}
+			if existing.MatchStatus == ChainTransferMatched {
+				return ErrChainTransferAlreadyMatched
+			}
+			return nil
+		}
+		if err := updated.markConfirming(tx, blockNum, from, txHash, at, amount); err != nil {
+			return err
+		}
+		claimed = true
+		return nil
+	})
+	if errors.Is(err, ErrOrderNotReceivable) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	if claimed {
+		*o = updated
+	}
+	return claimed, nil
+}
+
+// UnmatchedChainTransfers 指定时间之后付款或补录且仍未匹配到订单的入账。
 func UnmatchedChainTransfers(since time.Time, limit int) []ChainTransfer {
-	rows := make([]ChainTransfer, 0)
-	Db.Where("match_status = ? and block_time >= ?", ChainTransferUnmatched, since).
-		Order("id asc").Limit(limit).Find(&rows)
+	rows, _ := UnmatchedChainTransfersPage(since, 0, limit)
 
 	return rows
 }
 
+// UnmatchedChainTransfersPage 也回查近期补录的旧流水；ID 翻页让最早的无订单流水不阻塞后续付款。
+func UnmatchedChainTransfersPage(since time.Time, afterID int64, limit int) ([]ChainTransfer, error) {
+	rows := make([]ChainTransfer, 0)
+	err := Db.Where("match_status = ? and id > ? and (block_time >= ? or created_at >= ? or updated_at >= ?)", ChainTransferUnmatched, afterID, since, since, since).
+		Order("id asc").Limit(limit).Find(&rows).Error
+	return rows, err
+}
+
 func CountUnmatchedChainTransfers(since time.Time) int64 {
 	var count int64
-	Db.Model(&ChainTransfer{}).Where("match_status = ? and block_time >= ?", ChainTransferUnmatched, since).Count(&count)
+	Db.Model(&ChainTransfer{}).Where("match_status = ? and (block_time >= ? or created_at >= ? or updated_at >= ?)", ChainTransferUnmatched, since, since, since).Count(&count)
 
 	return count
 }

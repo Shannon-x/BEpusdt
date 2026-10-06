@@ -47,14 +47,16 @@ func binanceMock(t *testing.T, payAmount string) (*httptest.Server, *atomic.Int3
 }
 
 func TestWalletExchangeCredentialsRoundTripEncrypted(t *testing.T) {
+	// 完整测试密钥含 Base64 不会生成的字符，避免随机密文碰巧包含两字节明文。
+	const apiSecret = "test-secret-for-round-trip"
 	w := model.Wallet{Name: "bn", Status: model.WaStatusEnable, Address: testBinanceUID, MatchAddr: testBinanceUID, TradeType: string(model.UsdtBinance)}
 	if err := w.Validate(); err != nil {
 		t.Fatalf("numeric UID must validate: %v", err)
 	}
-	if err := w.SetCredentials(model.ExchangeCredential{ApiKey: "k1", ApiSecret: "s1"}); err != nil {
+	if err := w.SetCredentials(model.ExchangeCredential{ApiKey: "k1", ApiSecret: apiSecret}); err != nil {
 		t.Fatal(err)
 	}
-	if !strings.HasPrefix(w.Credentials, "enc:v1:") || strings.Contains(w.Credentials, "s1") {
+	if !strings.HasPrefix(w.Credentials, "enc:v1:") || strings.Contains(w.Credentials, apiSecret) {
 		t.Fatalf("credentials must be stored encrypted, got %q", w.Credentials)
 	}
 	if err := model.Db.Create(&w).Error; err != nil {
@@ -65,7 +67,7 @@ func TestWalletExchangeCredentialsRoundTripEncrypted(t *testing.T) {
 	var loaded model.Wallet
 	model.Db.Where("id = ?", w.ID).Find(&loaded)
 	cred, ok := loaded.GetCredentials()
-	if !ok || cred.ApiKey != "k1" || cred.ApiSecret != "s1" || !loaded.HasCredentials {
+	if !ok || cred.ApiKey != "k1" || cred.ApiSecret != apiSecret || !loaded.HasCredentials {
 		t.Fatalf("credentials must round-trip, got %+v ok=%v has=%v", cred, ok, loaded.HasCredentials)
 	}
 

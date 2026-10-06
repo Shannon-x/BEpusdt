@@ -1,6 +1,7 @@
 package model
 
 import (
+	"fmt"
 	"time"
 
 	"gorm.io/gorm/clause"
@@ -14,6 +15,7 @@ const (
 	ScanJobKindAbandoned = "abandoned" // 重试耗尽放弃的区块
 	ScanJobKindGap       = "gap"       // 链头跳跃 / 重启导致未扫描的区间
 	ScanJobKindReplay    = "replay"    // 手动回放
+	ScanJobKindNative    = "native"    // 原生币补扫，不重复扫描已完成的代币日志
 
 	ScanJobStatusPending  = "pending"  // 等待自动重试
 	ScanJobStatusRunning  = "running"  // 已入队执行中
@@ -38,13 +40,20 @@ func (ScanCursor) TableName() string {
 }
 
 func GetScanCursor(network string) (int64, bool) {
+	height, found, _ := LoadScanCursor(network)
+
+	return height, found
+}
+
+// LoadScanCursor 区分首次启动（没有游标）和数据库读取失败，避免故障时从链头重新开始。
+func LoadScanCursor(network string) (int64, bool, error) {
 	var row ScanCursor
 	res := Db.Where("network = ?", network).Limit(1).Find(&row)
-	if res.Error != nil || res.RowsAffected == 0 {
-		return 0, false
+	if res.Error != nil {
+		return 0, false, res.Error
 	}
 
-	return row.Height, true
+	return row.Height, res.RowsAffected > 0, nil
 }
 
 func SaveScanCursor(network string, height int64) error {
@@ -68,7 +77,8 @@ type ScanJob struct {
 	Network     string    `gorm:"column:network;type:varchar(20);not null;index:idx_scan_job_due,priority:2;comment:网络" json:"network"`
 	FromHeight  int64     `gorm:"column:from_height;not null;comment:起始高度" json:"from_height"`
 	ToHeight    int64     `gorm:"column:to_height;not null;comment:结束高度(含)" json:"to_height"`
-	Kind        string    `gorm:"column:kind;type:varchar(16);not null;comment:abandoned/gap/replay" json:"kind"`
+	NextHeight  int64     `gorm:"column:next_height;not null;default:0;comment:下次扫描起点，0表示from_height" json:"next_height"`
+	Kind        string    `gorm:"column:kind;type:varchar(16);not null;comment:abandoned/gap/replay/native" json:"kind"`
 	Status      string    `gorm:"column:status;type:varchar(16);not null;index:idx_scan_job_due,priority:1;comment:pending/running/done/failed/deferred" json:"status"`
 	Attempts    int       `gorm:"column:attempts;not null;default:0;comment:已自动重试次数" json:"attempts"`
 	LastError   string    `gorm:"column:last_error;type:varchar(512);not null;default:'';comment:最后一次失败原因" json:"last_error"`
@@ -164,9 +174,17 @@ func ScanJobCountsAll() map[string]map[string]int64 {
 }
 
 func (j *ScanJob) MarkRunning() error {
+	res := Db.Model(j).Where("status = ?", ScanJobStatusPending).
+		Updates(map[string]any{"status": ScanJobStatusRunning})
+	if res.Error != nil {
+		return res.Error
+	}
+	if res.RowsAffected == 0 {
+		return fmt.Errorf("scan job #%d is no longer pending", j.ID)
+	}
 	j.Status = ScanJobStatusRunning
 
-	return Db.Model(j).Updates(map[string]any{"status": j.Status}).Error
+	return nil
 }
 
 func (j *ScanJob) MarkDone() error {
@@ -213,11 +231,49 @@ func ScanJobRetryDelay(attempts int) time.Duration {
 
 // ResetStaleScanJobs 进程异常退出后遗留的 running 任务重新置为 pending，启动时调用
 func ResetStaleScanJobs(olderThan time.Duration) int64 {
-	res := Db.Model(&ScanJob{}).
-		Where("status = ? and updated_at < ?", ScanJobStatusRunning, time.Now().Add(-olderThan)).
-		Updates(map[string]any{"status": ScanJobStatusPending, "next_retry_at": time.Now()})
+	n, _ := RecoverScanJobs(olderThan, nil)
 
-	return res.RowsAffected
+	return n
+}
+
+// RecoverScanJobs 单进程启动时 olderThan=0，立即恢复上个进程的全部 running 任务。
+// 周期调用排除当前进程已跟踪任务；只回收失去内存跟踪且超过期限的任务。
+func RecoverScanJobs(olderThan time.Duration, activeIDs []int64) (int64, error) {
+	db := Db.Model(&ScanJob{}).Where("status = ?", ScanJobStatusRunning)
+	if olderThan > 0 {
+		db = db.Where("updated_at < ?", time.Now().Add(-olderThan))
+	}
+	if len(activeIDs) > 0 {
+		db = db.Where("id not in ?", activeIDs)
+	}
+	res := db.Updates(map[string]any{"status": ScanJobStatusPending, "next_retry_at": time.Now()})
+
+	return res.RowsAffected, res.Error
+}
+
+// RetryScanJobs 人工恢复失败/跳过的任务，保留原始范围、分段进度和错误证据。
+func RetryScanJobs(network string, statuses []string, id int64) (int64, error) {
+	if len(statuses) == 0 {
+		return 0, fmt.Errorf("retry requires failed or deferred status")
+	}
+	for _, status := range statuses {
+		if status != ScanJobStatusFailed && status != ScanJobStatusDeferred {
+			return 0, fmt.Errorf("status %s cannot be retried manually", status)
+		}
+	}
+	if network == "" && id <= 0 {
+		return 0, fmt.Errorf("retry requires network or job id")
+	}
+	db := Db.Model(&ScanJob{}).Where("status in ?", statuses)
+	if network != "" {
+		db = db.Where("network = ?", network)
+	}
+	if id > 0 {
+		db = db.Where("id = ?", id)
+	}
+	res := db.Updates(map[string]any{"status": ScanJobStatusPending, "attempts": 0, "next_retry_at": time.Now()})
+
+	return res.RowsAffected, res.Error
 }
 
 func truncate(s string, n int) string {

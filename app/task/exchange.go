@@ -139,6 +139,7 @@ func (s *exchangeScanner) pollWallet(ctx context.Context, cli exchange.Client, w
 	}
 
 	batch := make([]transfer, 0, len(receipts))
+	seenKeys := make([]string, 0, len(receipts))
 	for _, r := range receipts {
 		if !force && !s.seen.add(s.network+":"+w.MatchAddr+":"+r.ID) {
 			continue
@@ -146,6 +147,9 @@ func (s *exchangeScanner) pollWallet(ctx context.Context, cli exchange.Client, w
 		tradeType, ok := model.ExchangeTradeType(model.Network(s.network), model.Crypto(r.Crypto))
 		if !ok {
 			continue
+		}
+		if !force {
+			seenKeys = append(seenKeys, s.network+":"+w.MatchAddr+":"+r.ID)
 		}
 
 		batch = append(batch, transfer{
@@ -160,6 +164,14 @@ func (s *exchangeScanner) pollWallet(ctx context.Context, cli exchange.Client, w
 	}
 
 	if len(batch) > 0 {
+		if err := persistTransfers(batch); err != nil {
+			for _, key := range seenKeys {
+				s.seen.remove(key)
+			}
+			conf.RecordFailure(s.network)
+			entry.WithField("error", err.Error()).Warn("persist exchange receipts failed")
+			return false
+		}
 		transferQueue.In <- batch
 		entry.WithField("count", len(batch)).Info("exchange receipts queued")
 	}
@@ -191,11 +203,12 @@ func (s *exchangeScanner) status() ScanStatus {
 
 // replay 交易所的"区块"是时间：from / to 为 unix 秒，重新拉取该时间段内所有钱包的入账（忽略去重，流水表与订单匹配天然幂等）
 func (s *exchangeScanner) replay(from, to, jobID int64) int {
+	scanJobPartQueued(jobID, from)
 	go func() {
 		cli, err := s.newClient()
 		if err != nil {
 			if jobID != 0 {
-				scanJobPartFailed(jobID, err.Error())
+				scanJobPartFailed(jobID, err.Error(), from)
 			}
 
 			return
@@ -210,9 +223,9 @@ func (s *exchangeScanner) replay(from, to, jobID int64) int {
 
 		if jobID != 0 {
 			if ok {
-				scanJobPartDone(jobID)
+				scanJobPartDone(jobID, from)
 			} else {
-				scanJobPartFailed(jobID, "部分钱包拉取失败")
+				scanJobPartFailed(jobID, "部分钱包拉取失败", from)
 			}
 		}
 	}()
@@ -230,6 +243,12 @@ type seenSet struct {
 
 func newSeenSet(ttl time.Duration, max int) *seenSet {
 	return &seenSet{ttl: ttl, max: max, items: make(map[string]time.Time)}
+}
+
+func (s *seenSet) remove(key string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	delete(s.items, key)
 }
 
 // add 首次出现返回 true 并记录；已存在返回 false

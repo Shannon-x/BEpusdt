@@ -29,7 +29,13 @@ func Init() error {
 	model.RefreshC()
 
 	// 上次进程异常退出时遗留的执行中任务重新排队
-	if n := model.ResetStaleScanJobs(model.ScanJobStaleAfter); n > 0 {
+	// 扫描任务由单个进程执行；启动时不存在本进程的 running 任务，
+	// 不能按年龄过滤，否则快速重启留下的任务会一直卡在 running。
+	n, err := model.RecoverScanJobs(0, nil)
+	if err != nil {
+		return fmt.Errorf("恢复上次未完成的扫描任务失败: %w", err)
+	}
+	if n > 0 {
 		log.Task.Warn(fmt.Sprintf("重置 %d 个上次未完成的扫描任务", n))
 	}
 

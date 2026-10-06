@@ -79,7 +79,13 @@ func (t *ton) syncMBSeqnoForward(ctx context.Context) {
 				continue
 			}
 
-			t.lastBlockSeqno = uint32(resumeFrom(conf.Ton, 0, int64(mb.SeqNo), blockHeightTolerance()))
+			last, err := resumeFrom(conf.Ton, 0, int64(mb.SeqNo), blockHeightTolerance())
+			if err != nil {
+				log.Task.WithError(err).Warn("TON cursor recovery failed")
+				time.Sleep(time.Second)
+				continue
+			}
+			t.lastBlockSeqno = uint32(last)
 		}
 
 		nextSeqno := t.lastBlockSeqno + 1
@@ -99,7 +105,13 @@ func (t *ton) syncMBSeqnoForward(ctx context.Context) {
 		now := mb.SeqNo
 
 		// 链头跳跃超出容忍度时记录 gap 任务后对齐链头
-		t.lastBlockSeqno = uint32(resumeFrom(conf.Ton, int64(t.lastBlockSeqno), int64(now), blockHeightTolerance()))
+		last, err := resumeFrom(conf.Ton, int64(t.lastBlockSeqno), int64(now), blockHeightTolerance())
+		if err != nil {
+			log.Task.WithError(err).Warn("TON cursor gap persistence failed")
+			time.Sleep(time.Second)
+			continue
+		}
+		t.lastBlockSeqno = uint32(last)
 		if now <= t.lastBlockSeqno {
 			continue
 		}
@@ -302,6 +314,9 @@ func (t *ton) processShard(ctx context.Context, shard *tgo.BlockIDExt, seqno uin
 		}
 	}
 
+	if err := persistTransfers(transfers); err != nil {
+		return fmt.Errorf("persist transfers: %w", err)
+	}
 	if len(transfers) > 0 {
 		transferQueue.In <- transfers
 	}
