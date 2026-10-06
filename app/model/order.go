@@ -15,6 +15,7 @@ import (
 	"github.com/v03413/bepusdt/app/core"
 	"github.com/v03413/bepusdt/app/log"
 	"github.com/v03413/bepusdt/app/utils"
+	"gorm.io/gorm"
 )
 
 const (
@@ -112,9 +113,17 @@ type MethodItem struct {
 
 func (o *Order) SetCanceled() error {
 	core.New()
+	res := Db.Model(&Order{}).Where("id = ? and status = ?", o.ID, OrderStatusWaiting).
+		Updates(map[string]any{"status": OrderStatusCanceled})
+	if res.Error != nil {
+		return res.Error
+	}
+	if res.RowsAffected != 1 {
+		return ErrOrderNotReceivable
+	}
 	o.Status = OrderStatusCanceled
 
-	return Db.Save(o).Error
+	return nil
 }
 
 // CanReselectPayment 判断订单是否支持重选交易类型
@@ -138,10 +147,15 @@ func (o *Order) MatchFingerprint(fingerprint string) bool {
 	return !o.FingerprintBound() || o.ClientFingerprint == fingerprint
 }
 
-func (o *Order) SetExpired() {
+func (o *Order) SetExpired() bool {
+	res := Db.Model(&Order{}).Where("id = ? and status = ?", o.ID, OrderStatusWaiting).
+		Updates(map[string]any{"status": OrderStatusExpired})
+	if res.Error != nil || res.RowsAffected != 1 {
+		return false
+	}
 	o.Status = OrderStatusExpired
 
-	Db.Save(o)
+	return true
 }
 
 func (o *Order) SetSuccess() {
@@ -157,18 +171,39 @@ func (o *Order) SetFailed() {
 }
 
 func (o *Order) MarkConfirming(blockNum int, from, hash string, at time.Time, amount decimal.Decimal) error {
-	o.FromAddress = from
-	o.ConfirmedAt = &at
-	o.RefHash = hash
-	o.RefBlockNum = blockNum
-	o.Status = OrderStatusConfirming
+	return o.markConfirming(Db, blockNum, from, hash, at, amount)
+}
+
+// ErrOrderNotReceivable 表示订单已被付款、取消，或匹配期间收款条件发生变化。
+var ErrOrderNotReceivable = errors.New("order is no longer receivable")
+
+func (o *Order) markConfirming(db *gorm.DB, blockNum int, from, hash string, at time.Time, amount decimal.Decimal) error {
+	updates := map[string]any{
+		"from_address": from, "confirmed_at": at, "ref_hash": hash,
+		"ref_block_num": blockNum, "status": OrderStatusConfirming,
+	}
 	if o.AddressLocked {
 		rate, _ := decimal.NewFromString(o.Rate)
-		o.Amount = amount.String()
-		o.Money = rate.Mul(amount).String()
+		updates["amount"] = amount.String()
+		updates["money"] = rate.Mul(amount).String()
 	}
 
-	return Db.Save(o).Error
+	res := db.Model(&Order{}).
+		Where("id = ? and status in (?) and ref_hash = ''", o.ID, []int{OrderStatusWaiting, OrderStatusExpired}).
+		Where("trade_type = ? and address = ? and match_address = ? and amount = ? and address_locked = ?", o.TradeType, o.Address, o.MatchAddress, o.Amount, o.AddressLocked).
+		Where("created_at < ? and expired_at > ? and expired_at = ?", at, at, o.ExpiredAt).
+		Updates(updates)
+	if res.Error != nil {
+		return res.Error
+	}
+	if res.RowsAffected != 1 {
+		return ErrOrderNotReceivable
+	}
+	o.FromAddress, o.ConfirmedAt, o.RefHash, o.RefBlockNum, o.Status = from, &at, hash, blockNum, OrderStatusConfirming
+	if o.AddressLocked {
+		o.Amount, o.Money = updates["amount"].(string), updates["money"].(string)
+	}
+	return nil
 }
 
 func (o *Order) SetNotifyState(state int) error {

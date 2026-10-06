@@ -3,6 +3,7 @@ package task
 import (
 	"bytes"
 	"context"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
@@ -53,15 +54,18 @@ type evm struct {
 	lookbackQueue    *chanx.UnboundedChan[evmBlock] // 订单回溯 / 手动回放，低优先级
 	LookbackInterval time.Duration                  // 回溯时每批入队的间隔，控制 RPC 调用速率；默认 300ms
 	rpc              endpointPicker
+	nativeMu         sync.Mutex
+	nativeRotate     int // 原生 RPC 单独轮换，套餐限制不影响正常的 ERC20 节点
 }
 
 // evmBlock 待扫描区块区间、已失败次数、来源队列及所属持久化任务
 type evmBlock struct {
-	From     int64
-	To       int64
-	Attempt  int
-	Lookback bool
-	JobID    int64
+	From       int64
+	To         int64
+	Attempt    int
+	Lookback   bool
+	JobID      int64
+	NativeOnly bool // 原生币独立补扫，不重复下发已完成的代币流水
 }
 
 func newEvm(network string, b block, native evmNative, lookbackInterval time.Duration) *evm {
@@ -115,13 +119,20 @@ func (e *evm) status() ScanStatus {
 // replay 回放 / 任务重试：按批次进入低优先级队列
 func (e *evm) replay(from, to, jobID int64) int {
 	n := 0
+	nativeOnly := false
+	if jobID != 0 {
+		if job, ok := model.GetScanJob(jobID); ok {
+			nativeOnly = job.Kind == model.ScanJobKindNative
+		}
+	}
 	size := e.batchSize()
 	for i := from; i <= to; i += size {
 		end := i + size - 1
 		if end > to {
 			end = to
 		}
-		e.lookbackQueue.In <- evmBlock{From: i, To: end, Lookback: true, JobID: jobID}
+		scanJobPartQueued(jobID, i)
+		e.lookbackQueue.In <- evmBlock{From: i, To: end, Lookback: true, JobID: jobID, NativeOnly: nativeOnly}
 		n++
 	}
 
@@ -185,7 +196,7 @@ func (e *evm) syncBlocksForward(ctx context.Context) {
 	}
 
 	var res = gjson.ParseBytes(body)
-	if !res.IsObject() {
+	if !gjson.ValidBytes(body) || !res.IsObject() || res.Get("jsonrpc").String() != "2.0" || res.Get("id").Type != gjson.Number || res.Get("id").Float() != 1 {
 		entry.WithField("body", bodySnippet(body)).Warn("syncBlocksForward invalid json response")
 		e.rpc.failed(endpoint)
 
@@ -200,15 +211,17 @@ func (e *evm) syncBlocksForward(ctx context.Context) {
 	}
 
 	head := res.Get("result")
-	var now = utils.HexStr2Int(head.Get("number").String()).Int64() - e.Block.RollDelayOffset
-	if now <= 0 {
+	headNum, validNum := evmQuantity(head.Get("number").String())
+	headTimestamp, validTimestamp := evmQuantity(head.Get("timestamp").String())
+	now := headNum - e.Block.RollDelayOffset
+	if !head.IsObject() || !validNum || !validTimestamp || now <= 0 || headTimestamp <= 0 {
 		entry.WithField("body", bodySnippet(body)).Warn("syncBlocksForward invalid block number")
 		e.rpc.failed(endpoint)
 
 		return
 	}
 
-	headTime := time.Unix(utils.HexStr2Int(head.Get("timestamp").String()).Int64(), 0)
+	headTime := time.Unix(headTimestamp, 0)
 	if headIsStale(headTime) {
 		entry.WithFields(logrus.Fields{"head": now, "head_time": headTime.Format(time.DateTime)}).Warn("stale head: node is behind, switching endpoint")
 		e.rpc.failed(endpoint)
@@ -229,7 +242,11 @@ func (e *evm) syncBlocksForward(ctx context.Context) {
 	}
 
 	// 启动时从持久化游标续扫；链头跳跃超出容忍度时记录 gap 任务后对齐链头
-	lastBlockNumber = resumeFrom(e.Network, lastBlockNumber, now, blockHeightTolerance())
+	lastBlockNumber, err = resumeFrom(e.Network, lastBlockNumber, now, blockHeightTolerance())
+	if err != nil {
+		entry.WithError(err).Error("persist scan gap failed")
+		return
+	}
 
 	chainBlockNum.Store(e.Network, now)
 	if now <= lastBlockNumber {
@@ -327,174 +344,284 @@ func (e *evm) getBlockByNumber(a any) {
 	e.scanBlocks(b)
 }
 
-// scanBlocks 批量拉取并解析一段区块。批量响应必须逐项校验：数组、每个 id 有对应结果、无 error、区块号一致、时间戳存在，
-// 随后的 eth_getLogs 也成功，才计为成功；任何一项失败都进入退避重试，不推进成功计数。
+// scanBlocks 先完成代币流水持久化与下发，再独立扫描原生币；受限的 fullTransactions RPC 不会阻塞 ERC20 认单。
 func (e *evm) scanBlocks(job evmBlock) {
 	endpoint := e.rpc.current()
 	entry := scanLogger(e.Network, endpoint, "eth_getBlockByNumber", logrus.Fields{
-		"from":         job.From,
-		"to":           job.To,
-		"attempt":      job.Attempt,
-		"lookback":     job.Lookback,
+		"from": job.From, "to": job.To, "attempt": job.Attempt,
+		"lookback": job.Lookback, "native_only": job.NativeOnly,
 		"queue_length": e.queueFor(job).Len(),
 	})
-
-	// fail 记失败并安排重试；switchEndpoint 为 true 表示失败源于节点本身，需要切换备用节点
-	fail := func(reason string, fields logrus.Fields, switchEndpoint bool) {
+	fail := func(reason string, err error, nodeFailure bool) {
 		conf.RecordFailure(e.Network)
-		if switchEndpoint {
+		if nodeFailure && (!errors.Is(err, errEvmBlockUnavailable) || unavailableSwitch(job.Attempt)) {
 			e.rpc.failed(endpoint)
 		}
-		e.retryBlocks(job, reason, entry.WithFields(fields))
+		e.retryBlocks(job, reason+": "+err.Error(), entry.WithError(err))
 	}
 
-	// unavailable 区块尚未可用（节点落后）：前两次在原节点等待，持续不可用才切换；首次等待不计入失败率
-	unavailable := func(reason string, fields logrus.Fields) {
-		if job.Attempt > 0 {
+	if !job.NativeOnly {
+		ctx, cancel := context.WithTimeout(context.Background(), scanRequestTimeout)
+		blocks, _, err := e.fetchBlocks(ctx, endpoint, job, false)
+		if err != nil {
+			cancel()
+			fail("block headers failed", err, true)
+			return
+		}
+		transfers, err := e.parseEventTransfer(ctx, endpoint, job, blocks)
+		cancel()
+		if err != nil {
+			fail("eth_getLogs failed", err, true)
+			return
+		}
+		if err := persistTransfers(transfers); err != nil {
+			fail("persist token transfers failed", err, false)
+			return
+		}
+		if len(transfers) > 0 {
+			transferQueue.In <- transfers
+		}
+	}
+
+	if e.nativeRequired(job) {
+		nativeEndpoint := e.nativeEndpoint()
+		ctx, cancel := context.WithTimeout(context.Background(), scanRequestTimeout)
+		_, transfers, nativeErr := e.fetchBlocks(ctx, nativeEndpoint, job, true)
+		cancel()
+		nodeFailure := nativeErr != nil
+		if nativeErr == nil {
+			nativeErr = persistTransfers(transfers)
+		}
+		if nativeErr != nil {
+			if nodeFailure {
+				e.nativeEndpointFailed(nativeEndpoint)
+			}
+			if job.NativeOnly {
+				fail("native scan failed", nativeErr, false)
+				return
+			}
+			// 原生补扫任务先落库，随后才允许代币主扫描推进游标；重启也不会丢失 ETH。
+			_, err := model.CreateScanJob(e.Network, job.From, job.To, model.ScanJobKindNative,
+				model.ScanJobStatusPending, nativeErr.Error(), time.Now().Add(model.ScanJobRetryBase))
+			if err != nil {
+				fail("persist native retry job failed", err, false)
+				return
+			}
 			conf.RecordFailure(e.Network)
+			entry.WithError(nativeErr).Warn("native scan deferred to durable retry job")
+		} else if len(transfers) > 0 {
+			transferQueue.In <- transfers
 		}
-		if unavailableSwitch(job.Attempt) {
-			e.rpc.failed(endpoint)
-		}
-		e.retryBlocks(job, reason, entry.WithFields(fields))
-	}
-
-	items := make([]string, 0, job.To-job.From+1)
-	for i := job.From; i <= job.To; i++ {
-		items = append(items, fmt.Sprintf(`{"jsonrpc":"2.0","method":"eth_getBlockByNumber","params":["0x%x",%t],"id":%d}`, i, e.Native.Parse, i))
-	}
-
-	ctx, cancel := context.WithTimeout(context.Background(), scanRequestTimeout)
-	defer cancel()
-
-	req, err := http.NewRequestWithContext(ctx, "POST", endpoint, bytes.NewBuffer([]byte(fmt.Sprintf(`[%s]`, strings.Join(items, ",")))))
-	if err != nil {
-		fail("create request error", logrus.Fields{"error": err.Error()}, false)
-
-		return
-	}
-
-	req.Header.Set("Content-Type", "application/json")
-	resp, err := e.Client.Do(req)
-	if err != nil {
-		fail("http request error", logrus.Fields{"error": err.Error()}, true)
-
-		return
-	}
-
-	defer resp.Body.Close()
-
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		fail("read response body error", logrus.Fields{"http_status": resp.StatusCode, "error": err.Error()}, true)
-
-		return
-	}
-
-	if resp.StatusCode != 200 { // 429 / 5xx 等，退避后重试
-		fail("http status error", logrus.Fields{"http_status": resp.StatusCode, "body": bodySnippet(body)}, true)
-
-		return
-	}
-
-	res := gjson.ParseBytes(body)
-	if !res.IsArray() {
-		// 部分 RPC 对批量请求整体报错时返回单个对象
-		if rpcErr, ok := parseRpcError(res); ok {
-			fail("batch rpc error", rpcErr.fields(), true)
-
-			return
-		}
-
-		fail("batch response is not an array", logrus.Fields{"body": bodySnippet(body)}, true)
-
-		return
-	}
-
-	byId := make(map[int64]gjson.Result)
-	for _, itm := range res.Array() {
-		byId[itm.Get("id").Int()] = itm
-	}
-
-	nativeTransfers := make([]transfer, 0)
-	blocks := make(map[int64]evmBlockRef)
-	for i := job.From; i <= job.To; i++ {
-		itm, ok := byId[i]
-		if !ok {
-			fail("batch response missing block", logrus.Fields{"block": i, "received": len(byId)}, true)
-
-			return
-		}
-
-		if rpcErr, ok := parseRpcError(itm); ok {
-			fail("rpc error", logrus.Fields{"block": i, "rpc_error_code": rpcErr.Code, "rpc_error_message": rpcErr.Message}, true)
-
-			return
-		}
-
-		result := itm.Get("result")
-		if !result.Exists() || result.Type == gjson.Null {
-			// 节点尚未同步到该高度：时序问题，原节点等待，持续不可用才切换
-			unavailable("block result is null (node behind)", logrus.Fields{"block": i})
-
-			return
-		}
-
-		num := utils.HexStr2Int(result.Get("number").String()).Int64()
-		if num != i {
-			fail("block number mismatch", logrus.Fields{"block": i, "got": num}, true)
-
-			return
-		}
-
-		ts := result.Get("timestamp")
-		if !ts.Exists() || ts.String() == "" {
-			fail("block timestamp missing", logrus.Fields{"block": i}, true)
-
-			return
-		}
-
-		hash := result.Get("hash").String()
-		if hash == "" {
-			fail("block hash missing", logrus.Fields{"block": i}, true)
-
-			return
-		}
-
-		blockTime := time.Unix(utils.HexStr2Int(ts.String()).Int64(), 0)
-		blocks[i] = evmBlockRef{Num: i, Hash: hash, Time: blockTime}
-
-		var array = result.Get("transactions").Array()
-		if e.Native.Parse && len(array) != 0 {
-
-			nativeTransfers = append(nativeTransfers, e.parseNativeTransfer(array, int(i), blockTime)...)
-		}
-	}
-
-	transfers, err := e.parseEventTransfer(ctx, endpoint, job, blocks)
-	if err != nil {
-		fail("eth_getLogs failed", logrus.Fields{"error": err.Error()}, true)
-
-		return
-	}
-
-	if len(nativeTransfers) > 0 {
-		transferQueue.In <- nativeTransfers
-	}
-	if len(transfers) > 0 {
-		transferQueue.In <- transfers
 	}
 
 	conf.RecordSuccess(e.Network, cast.ToString(job.To))
-	lookbackTrack.done(e.Network, job.From, true)
+	if !job.NativeOnly {
+		lookbackTrack.done(e.Network, job.From, true)
+	}
 	if !job.Lookback {
 		cursorOf(e.Network).complete(job.From, job.To)
 	}
 	if job.JobID != 0 {
-		scanJobPartDone(job.JobID)
+		scanJobPartDone(job.JobID, job.From)
 	}
-
 	log.Task.Info(fmt.Sprintf("区块扫描完成(%s): %d → %d 成功率：%s", e.Network, job.From, job.To, conf.GetSuccessRate(e.Network)))
+}
+
+// nativeRequired 原生币按支付/监控需求扫描；回放还考虑历史钱包和订单，覆盖已过实时窗口的 ETH。
+func (e *evm) nativeRequired(job evmBlock) bool {
+	if !e.Native.Parse {
+		return false
+	}
+	if job.NativeOnly || mqttSubscribed(e.Network) {
+		return true
+	}
+	var count int64
+	wallets := model.Db.Model(&model.Wallet{}).Where("trade_type = ?", e.Native.TradeType)
+	if job.JobID == 0 {
+		wallets = wallets.Where("other_notify = ?", model.WaOtherEnable)
+	}
+	if err := wallets.Limit(1).Count(&count).Error; err != nil || count > 0 {
+		return true
+	}
+	// 等待、确认中及回溯窗口内的过期原生订单都需要保留扫描。
+	orders := model.Db.Model(&model.Order{}).Where("trade_type = ?", e.Native.TradeType)
+	if job.JobID == 0 {
+		orders = orders.Where("status in (?)", receivableOrderStatuses()).
+			Where("expired_at > ?", time.Now().Add(model.GetLookbackHour()))
+	}
+	if err := orders.Limit(1).Count(&count).Error; err != nil {
+		return true
+	}
+	return count > 0
+}
+
+func (e *evm) nativeEndpoint() string {
+	list := e.rpc.list()
+	if len(list) == 0 {
+		return ""
+	}
+	e.nativeMu.Lock()
+	defer e.nativeMu.Unlock()
+	return list[e.nativeRotate%len(list)]
+}
+
+func (e *evm) nativeEndpointFailed(endpoint string) {
+	list := e.rpc.list()
+	if len(list) < 2 {
+		return
+	}
+	e.nativeMu.Lock()
+	defer e.nativeMu.Unlock()
+	if list[e.nativeRotate%len(list)] == endpoint {
+		e.nativeRotate = (e.nativeRotate + 1) % len(list)
+	}
+}
+
+var errEvmBlockUnavailable = errors.New("block result is null (node behind)")
+
+// fetchBlocks 严格校验完整批次。代币仅取区块头；原生币另取交易对象，能力限制互不影响。
+func (e *evm) fetchBlocks(ctx context.Context, endpoint string, job evmBlock, fullTransactions bool) (map[int64]evmBlockRef, []transfer, error) {
+	items := make([]string, 0, job.To-job.From+1)
+	for i := job.From; i <= job.To; i++ {
+		items = append(items, fmt.Sprintf(`{"jsonrpc":"2.0","method":"eth_getBlockByNumber","params":["0x%x",%t],"id":%d}`, i, fullTransactions, i))
+	}
+	data, err := e.rpcRequest(ctx, endpoint, []byte("["+strings.Join(items, ",")+"]"))
+	if err != nil {
+		return nil, nil, err
+	}
+	byID, err := evmBatchResponses(data, job.From, job.To)
+	if err != nil {
+		return nil, nil, err
+	}
+	blocks := make(map[int64]evmBlockRef, len(byID))
+	transfers := make([]transfer, 0)
+	for i := job.From; i <= job.To; i++ {
+		result := byID[i].Get("result")
+		if !result.Exists() || result.Type == gjson.Null {
+			return nil, nil, fmt.Errorf("block %d: %w", i, errEvmBlockUnavailable)
+		}
+		if !result.IsObject() {
+			return nil, nil, fmt.Errorf("block %d result is not an object", i)
+		}
+		num, ok := evmQuantity(result.Get("number").String())
+		if !ok || num != i {
+			return nil, nil, fmt.Errorf("block %d number mismatch or invalid", i)
+		}
+		ts, ok := evmQuantity(result.Get("timestamp").String())
+		if !ok || ts <= 0 {
+			return nil, nil, fmt.Errorf("block %d timestamp missing or invalid", i)
+		}
+		hash := result.Get("hash").String()
+		if !evmHexSize(hash, 32) {
+			return nil, nil, fmt.Errorf("block %d hash missing or invalid", i)
+		}
+		blockTime := time.Unix(ts, 0)
+		blocks[i] = evmBlockRef{Num: i, Hash: hash, Time: blockTime}
+		if fullTransactions {
+			transactions := result.Get("transactions")
+			if !transactions.IsArray() {
+				return nil, nil, fmt.Errorf("block %d transactions missing", i)
+			}
+			for _, tx := range transactions.Array() {
+				if !tx.IsObject() || !strings.HasPrefix(tx.Get("input").String(), "0x") ||
+					!evmHexSize(tx.Get("hash").String(), 32) || !evmHexSize(tx.Get("from").String(), 20) {
+					return nil, nil, fmt.Errorf("block %d full transactions not returned", i)
+				}
+				if _, ok := evmBigQuantity(tx.Get("value").String()); !ok {
+					return nil, nil, fmt.Errorf("block %d transaction value missing or invalid", i)
+				}
+				if to := tx.Get("to"); to.Type != gjson.Null && !evmHexSize(to.String(), 20) {
+					return nil, nil, fmt.Errorf("block %d transaction recipient invalid", i)
+				}
+			}
+			transfers = append(transfers, e.parseNativeTransfer(transactions.Array(), int(i), blockTime)...)
+		}
+	}
+	return blocks, transfers, nil
+}
+
+func (e *evm) rpcRequest(ctx context.Context, endpoint string, post []byte) (gjson.Result, error) {
+	req, err := http.NewRequestWithContext(ctx, "POST", endpoint, bytes.NewReader(post))
+	if err != nil {
+		return gjson.Result{}, err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := e.Client.Do(req)
+	if err != nil {
+		return gjson.Result{}, err
+	}
+	defer resp.Body.Close()
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return gjson.Result{}, err
+	}
+	if resp.StatusCode != http.StatusOK {
+		return gjson.Result{}, fmt.Errorf("RPC http status %d: %s", resp.StatusCode, bodySnippet(body))
+	}
+	if !gjson.ValidBytes(body) {
+		return gjson.Result{}, fmt.Errorf("RPC invalid json: %s", bodySnippet(body))
+	}
+	data := gjson.ParseBytes(body)
+	if rpcErr, ok := parseRpcError(data); ok {
+		return gjson.Result{}, fmt.Errorf("RPC error code=%d message=%s", rpcErr.Code, rpcErr.Message)
+	}
+	return data, nil
+}
+
+func evmBatchResponses(data gjson.Result, from, to int64) (map[int64]gjson.Result, error) {
+	if !data.IsArray() {
+		return nil, errors.New("RPC batch response is not an array")
+	}
+	byID := make(map[int64]gjson.Result)
+	for _, item := range data.Array() {
+		id := item.Get("id")
+		if !item.IsObject() || item.Get("jsonrpc").String() != "2.0" || id.Type != gjson.Number || id.Int() < from || id.Int() > to || id.Float() != float64(id.Int()) {
+			return nil, errors.New("RPC batch response has invalid id")
+		}
+		if _, exists := byID[id.Int()]; exists {
+			return nil, errors.New("RPC batch response has duplicate id")
+		}
+		if rpcErr, ok := parseRpcError(item); ok {
+			return nil, fmt.Errorf("RPC block %d error code=%d message=%s", id.Int(), rpcErr.Code, rpcErr.Message)
+		}
+		byID[id.Int()] = item
+	}
+	if int64(len(byID)) != to-from+1 {
+		return nil, errors.New("RPC batch response missing block")
+	}
+	return byID, nil
+}
+
+func evmQuantity(s string) (int64, bool) {
+	n, ok := evmBigQuantity(s)
+	if !ok || !n.IsInt64() {
+		return 0, false
+	}
+	return n.Int64(), true
+}
+
+func evmBigQuantity(s string) (*big.Int, bool) {
+	if !strings.HasPrefix(s, "0x") || len(s) < 3 {
+		return nil, false
+	}
+	for _, c := range s[2:] {
+		if !(c >= '0' && c <= '9' || c >= 'a' && c <= 'f' || c >= 'A' && c <= 'F') {
+			return nil, false
+		}
+	}
+	return new(big.Int).SetString(s[2:], 16)
+}
+
+func evmHexSize(s string, size int) bool {
+	if len(s) != 2+size*2 || !strings.HasPrefix(s, "0x") {
+		return false
+	}
+	_, err := hex.DecodeString(s[2:])
+	return err == nil
+}
+
+func evmAddressTopic(s string) bool {
+	return evmHexSize(s, 32) && strings.HasPrefix(s, "0x000000000000000000000000")
 }
 
 // retryBlocks 退避后重新入队；重试耗尽则放弃并通知回溯追踪
@@ -503,6 +630,14 @@ func (e *evm) retryBlocks(job evmBlock, reason string, entry *logrus.Entry) {
 	if delay, ok := scanRetryLater(e.queueFor(job), job, job.Attempt); ok {
 		entry.WithField("next_retry_in", delay.Round(time.Millisecond).String()).Warn("block scan failed, will retry: " + reason)
 
+		return
+	}
+	if job.NativeOnly && job.JobID != 0 {
+		// 原生子任务不结算同高度的普通订单回溯，也不推进代币连续游标。
+		scanJobPartFailed(job.JobID, reason, job.From)
+		entry.Error("native scan abandoned after max attempts: " + reason)
+		scanAlert("native_abandon_"+e.Network, 5*time.Minute, "原生币扫描重试",
+			fmt.Sprintf("网络：%s\n原生币任务：#%d 区块 %d → %d\n原因：%s\n已保留持久化任务继续自动重试，请配置支持完整交易对象的 RPC。", e.Network, job.JobID, job.From, job.To, reason))
 		return
 	}
 
@@ -546,7 +681,7 @@ func (e *evm) parseNativeTransfer(array []gjson.Result, num int, timestamp time.
 			BlockNum:    num,
 			Timestamp:   timestamp,
 			TradeType:   e.Native.TradeType,
-			Index:       int(utils.HexStr2Int(tx.Get("transactionIndex").String()).Int64()),
+			Index:       -1, // 每个交易最多一笔原生转账；与非负 ERC20 logIndex 独立
 		})
 	}
 
@@ -588,44 +723,13 @@ func (e *evm) parseEventTransfer(ctx context.Context, endpoint string, b evmBloc
 			ref.Hash, strings.Join(addresses, ","), evmTransferEvent, i))
 	}
 
-	req, err := http.NewRequestWithContext(ctx, "POST", endpoint, bytes.NewBuffer([]byte("["+strings.Join(items, ",")+"]")))
+	data, err := e.rpcRequest(ctx, endpoint, []byte("["+strings.Join(items, ",")+"]"))
 	if err != nil {
-
-		return transfers, errors.Join(errors.New("eth_getLogs NewRequest Error"), err)
+		return transfers, fmt.Errorf("eth_getLogs: %w", err)
 	}
-
-	req.Header.Set("Content-Type", "application/json")
-	resp, err := e.Client.Do(req)
+	byId, err := evmBatchResponses(data, b.From, b.To)
 	if err != nil {
-
-		return transfers, errors.Join(errors.New("eth_getLogs Post Error"), err)
-	}
-
-	defer resp.Body.Close()
-
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-
-		return transfers, errors.Join(errors.New("eth_getLogs ReadAll Error"), err)
-	}
-
-	if resp.StatusCode != 200 {
-
-		return transfers, fmt.Errorf("eth_getLogs http status %d: %s", resp.StatusCode, bodySnippet(body))
-	}
-
-	data := gjson.ParseBytes(body)
-	if !data.IsArray() {
-		if rpcErr, ok := parseRpcError(data); ok {
-			return transfers, fmt.Errorf("eth_getLogs rpc error code=%d message=%s", rpcErr.Code, rpcErr.Message)
-		}
-
-		return transfers, fmt.Errorf("eth_getLogs batch response is not an array: %s", bodySnippet(body))
-	}
-
-	byId := make(map[int64]gjson.Result)
-	for _, itm := range data.Array() {
-		byId[itm.Get("id").Int()] = itm
+		return transfers, fmt.Errorf("eth_getLogs: %w", err)
 	}
 
 	for i := b.From; i <= b.To; i++ {
@@ -643,30 +747,23 @@ func (e *evm) parseEventTransfer(ctx context.Context, endpoint string, b evmBloc
 
 		ref := blocks[i]
 		for _, log := range result.Array() {
-			to := log.Get("address").String()
+			to := strings.ToLower(log.Get("address").String())
 			tradeType, ok := model.GetContractTrade(to)
-			if !ok {
-
+			if !ok || model.TradeNetwork(tradeType) != model.Network(e.Network) {
 				continue
 			}
 
 			topics := log.Get("topics").Array()
-			if len(topics) < 3 || topics[0].String() != evmTransferEvent { // transfer event signature
+			if len(topics) < 1 || !strings.EqualFold(topics[0].String(), evmTransferEvent) { // transfer event signature
 
 				continue
 			}
 
+			if len(topics) != 3 || !evmAddressTopic(topics[1].String()) || !evmAddressTopic(topics[2].String()) || !evmHexSize(log.Get("data").String(), 32) {
+				return transfers, fmt.Errorf("eth_getLogs block %d returned malformed Transfer event", i)
+			}
 			fromTopic, recvTopic := topics[1].String(), topics[2].String()
-			if len(fromTopic) < 66 || len(recvTopic) < 66 {
-
-				continue
-			}
-
 			dataHex := log.Get("data").String()
-			if len(dataHex) <= 2 {
-
-				continue
-			}
 
 			amount, ok := big.NewInt(0).SetString(dataHex[2:], 16)
 			if !ok || amount.Sign() <= 0 {
@@ -674,9 +771,15 @@ func (e *evm) parseEventTransfer(ctx context.Context, endpoint string, b evmBloc
 				continue
 			}
 
-			if bh := log.Get("blockHash").String(); bh != "" && !strings.EqualFold(bh, ref.Hash) {
-				// 返回的日志不属于请求的块：节点数据不一致，整批重试
+			if bh := log.Get("blockHash").String(); !strings.EqualFold(bh, ref.Hash) {
 				return transfers, fmt.Errorf("eth_getLogs block %d returned log of another block hash %s", i, bh)
+			}
+			if num, ok := evmQuantity(log.Get("blockNumber").String()); !ok || num != i {
+				return transfers, fmt.Errorf("eth_getLogs block %d returned invalid log block number", i)
+			}
+			index, ok := evmQuantity(log.Get("logIndex").String())
+			if !ok || !evmHexSize(log.Get("transactionHash").String(), 32) || log.Get("removed").Bool() {
+				return transfers, fmt.Errorf("eth_getLogs block %d returned incomplete or removed log", i)
 			}
 
 			transfers = append(transfers, transfer{
@@ -688,7 +791,7 @@ func (e *evm) parseEventTransfer(ctx context.Context, endpoint string, b evmBloc
 				BlockNum:    int(ref.Num),
 				Timestamp:   ref.Time,
 				TradeType:   tradeType,
-				Index:       int(utils.HexStr2Int(log.Get("logIndex").String()).Int64()),
+				Index:       int(index),
 			})
 		}
 	}
@@ -712,40 +815,13 @@ func (e *evm) tradeConfirmHandle(ctx context.Context) {
 		}
 
 		endpoint := e.rpcEndpoint()
-		post := []byte(fmt.Sprintf(`{"jsonrpc":"2.0","method":"eth_getTransactionReceipt","params":["%s"],"id":1}`, o.RefHash))
-		req, err := http.NewRequestWithContext(ctx, "POST", endpoint, bytes.NewBuffer(post))
+		confirmed, err := e.confirmReceipt(ctx, endpoint, o)
 		if err != nil {
-			log.Task.Warn("evm tradeConfirmHandle Error creating request:", err)
-
-			return
-		}
-
-		req.Header.Set("Content-Type", "application/json")
-		resp, err := e.Client.Do(req)
-		if err != nil {
-			log.Task.Warn("evm tradeConfirmHandle Error sending request:", err)
+			scanLogger(e.Network, endpoint, "eth_getTransactionReceipt", nil).WithError(err).Warn("transaction confirmation failed")
 			e.rpc.failed(endpoint)
-
 			return
 		}
-
-		defer resp.Body.Close()
-
-		body, err := io.ReadAll(resp.Body)
-		if err != nil {
-			log.Task.Warn("evm tradeConfirmHandle Error reading response body:", err)
-
-			return
-		}
-
-		data := gjson.ParseBytes(body)
-		if data.Get("error").Exists() {
-			log.Task.Warn(fmt.Sprintf("%s eth_getTransactionReceipt response error %s", e.Network, data.Get("error").String()))
-
-			return
-		}
-
-		if data.Get("result.status").String() == "0x1" {
+		if confirmed {
 			markFinalConfirmed(o)
 		}
 	}
@@ -759,6 +835,83 @@ func (e *evm) tradeConfirmHandle(ctx context.Context) {
 	}
 
 	wg.Wait()
+}
+
+// confirmReceipt 只确认同一笔、同一区块的成功交易，代币订单还必须在 receipt 中有对应合约/地址/金额的 Transfer。
+func (e *evm) confirmReceipt(ctx context.Context, endpoint string, o model.Order) (bool, error) {
+	if !evmHexSize(o.RefHash, 32) || o.RefBlockNum <= 0 || model.TradeNetwork(o.TradeType) != model.Network(e.Network) {
+		return false, errors.New("order transaction reference or network is invalid")
+	}
+	ctx, cancel := context.WithTimeout(ctx, scanRequestTimeout)
+	defer cancel()
+	post := []byte(fmt.Sprintf(`{"jsonrpc":"2.0","method":"eth_getTransactionReceipt","params":["%s"],"id":1}`, o.RefHash))
+	data, err := e.rpcRequest(ctx, endpoint, post)
+	if err != nil {
+		return false, err
+	}
+	if !data.IsObject() || data.Get("jsonrpc").String() != "2.0" || data.Get("id").Type != gjson.Number || data.Get("id").Float() != 1 {
+		return false, errors.New("receipt response is not a matching JSON-RPC object")
+	}
+	receipt := data.Get("result")
+	if !receipt.IsObject() {
+		return false, errors.New("transaction receipt missing or invalid")
+	}
+	if !evmHexSize(receipt.Get("transactionHash").String(), 32) || !strings.EqualFold(receipt.Get("transactionHash").String(), o.RefHash) {
+		return false, errors.New("receipt transaction hash mismatch")
+	}
+	blockNum, ok := evmQuantity(receipt.Get("blockNumber").String())
+	if !ok || blockNum != int64(o.RefBlockNum) || !evmHexSize(receipt.Get("blockHash").String(), 32) {
+		return false, errors.New("receipt block reference mismatch or invalid")
+	}
+	status, ok := evmQuantity(receipt.Get("status").String())
+	if !ok || status > 1 {
+		return false, errors.New("receipt status missing or invalid")
+	}
+	if status == 0 {
+		return false, nil
+	}
+	if o.TradeType == e.Native.TradeType {
+		if !strings.EqualFold(receipt.Get("to").String(), orderMatchAddress(o)) || !strings.EqualFold(receipt.Get("from").String(), o.FromAddress) {
+			return false, errors.New("native receipt recipient or sender mismatch")
+		}
+		return true, nil
+	}
+	logs := receipt.Get("logs")
+	if !logs.IsArray() {
+		return false, errors.New("receipt logs missing or invalid")
+	}
+	for _, event := range logs.Array() {
+		contract := strings.ToLower(event.Get("address").String())
+		tradeType, ok := model.GetContractTrade(contract)
+		if !ok || tradeType != o.TradeType || model.TradeNetwork(tradeType) != model.Network(e.Network) {
+			continue
+		}
+		topics := event.Get("topics").Array()
+		if len(topics) != 3 || !strings.EqualFold(topics[0].String(), evmTransferEvent) || !evmAddressTopic(topics[1].String()) || !evmAddressTopic(topics[2].String()) {
+			continue
+		}
+		if !strings.EqualFold("0x"+topics[2].String()[26:], orderMatchAddress(o)) || !strings.EqualFold("0x"+topics[1].String()[26:], o.FromAddress) {
+			continue
+		}
+		if !evmHexSize(event.Get("data").String(), 32) || event.Get("removed").Bool() ||
+			!strings.EqualFold(event.Get("transactionHash").String(), o.RefHash) ||
+			!strings.EqualFold(event.Get("blockHash").String(), receipt.Get("blockHash").String()) {
+			continue
+		}
+		eventBlock, ok := evmQuantity(event.Get("blockNumber").String())
+		if !ok || eventBlock != blockNum {
+			continue
+		}
+		if _, ok := evmQuantity(event.Get("logIndex").String()); !ok {
+			continue
+		}
+		amount, ok := new(big.Int).SetString(event.Get("data").String()[2:], 16)
+		if !ok || amount.Sign() <= 0 || !amountMatch(decimal.NewFromBigInt(amount, model.GetContractDecimal(contract)), o.Amount, string(o.TradeType)) {
+			continue
+		}
+		return true, nil
+	}
+	return false, errors.New("successful receipt is missing the order's Transfer event")
 }
 
 func (e *evm) rpcEndpoint() string {

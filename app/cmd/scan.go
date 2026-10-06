@@ -12,7 +12,7 @@ import (
 // Scan 扫描运维命令：直接操作数据库中的游标与任务表，运行中的 start 进程每分钟会接手 pending 任务。
 var Scan = &cli.Command{
 	Name:  "scan",
-	Usage: "区块扫描运维：查看游标/任务，登记补扫任务",
+	Usage: "区块扫描运维：查看游标/任务，登记补扫任务，重试失败/延迟任务",
 	Commands: []*cli.Command{
 		{
 			Name:   "status",
@@ -38,6 +38,43 @@ var Scan = &cli.Command{
 				}
 				fmt.Println()
 
+				return nil
+			},
+		},
+		{
+			Name:  "retry",
+			Usage: "重新启用失败/延迟任务：bepusdt scan retry --network ethereum --status failed",
+			Flags: []cli.Flag{
+				SQLiteFlag, MySQLDSNFlag, PostgresDSNFlag,
+				&cli.StringFlag{Name: "network", Usage: "要恢复的网络", Required: true},
+				&cli.StringFlag{Name: "status", Usage: "failed / deferred / all（all 仅含前两者）", Value: "failed"},
+				&cli.IntFlag{Name: "id", Usage: "只恢复该网络的指定任务 ID；省略则按状态批量恢复"},
+			},
+			Before: scanBefore,
+			After:  scanAfter,
+			Action: func(ctx context.Context, cmd *cli.Command) error {
+				network := cmd.String("network")
+				if _, ok := model.GetAllNetwork()[network]; !ok {
+					return fmt.Errorf("未知网络：%s", network)
+				}
+				statuses := []string{cmd.String("status")}
+				switch statuses[0] {
+				case model.ScanJobStatusFailed, model.ScanJobStatusDeferred:
+				case "all":
+					statuses = []string{model.ScanJobStatusFailed, model.ScanJobStatusDeferred}
+				default:
+					return fmt.Errorf("仅允许 --status failed / deferred / all")
+				}
+				id := int64(cmd.Int("id"))
+				if id < 0 {
+					return fmt.Errorf("任务 ID 不可小于 0")
+				}
+				n, err := model.RetryScanJobs(network, statuses, id)
+				if err != nil {
+					return err
+				}
+				fmt.Printf("已恢复 %d 个 %s 扫描任务为 pending，重试次数归零。\n", n, network)
+				fmt.Println("运行中的 bepusdt start 进程会接手执行；原失败原因保留在任务记录中。")
 				return nil
 			},
 		},

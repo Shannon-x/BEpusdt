@@ -109,6 +109,7 @@ func (s *solana) status() ScanStatus {
 func (s *solana) replay(from, to, jobID int64) int {
 	n := 0
 	for i := from; i <= to; i++ {
+		scanJobPartQueued(jobID, i)
 		s.lookbackQueue.In <- solanaSlot{Slot: int(i), Lookback: true, JobID: jobID}
 		n++
 	}
@@ -177,7 +178,13 @@ func (s *solana) syncSlotForward(ctx context.Context) {
 	}
 
 	// 启动时从持久化游标续扫；链头跳跃超出容忍度时记录 gap 任务后对齐链头
-	s.lastSlotNum = int(resumeFrom(conf.Solana, int64(s.lastSlotNum), int64(now), blockHeightTolerance()))
+	last, err := resumeFrom(conf.Solana, int64(s.lastSlotNum), int64(now), blockHeightTolerance())
+	if err != nil {
+		entry.WithError(err).Warn("syncSlotForward cursor recovery failed")
+
+		return
+	}
+	s.lastSlotNum = int(last)
 
 	if now <= s.lastSlotNum { // 区块高度没有变化
 
@@ -359,6 +366,7 @@ func (s *solana) scanSlot(job solanaSlot) {
 	}
 
 	timestamp := time.Unix(result.Get("blockTime").Int(), 0)
+	var blockTransfers []transfer
 
 	for _, trans := range result.Get("transactions").Array() {
 		// 交易内转账序号：外层指令用其位置，内层指令用 1000 + 外层位置*100 + 内层位置
@@ -465,11 +473,16 @@ func (s *solana) scanSlot(job solanaSlot) {
 			result = append(result, t)
 		}
 
-		if len(result) > 0 {
-			transferQueue.In <- result
-		}
+		blockTransfers = append(blockTransfers, result...)
 	}
 
+	if err := persistTransfers(blockTransfers); err != nil {
+		fail("persist transfers failed", logrus.Fields{"error": err.Error()}, false)
+		return
+	}
+	if len(blockTransfers) > 0 {
+		transferQueue.In <- blockTransfers
+	}
 	s.slotDone(job)
 
 	log.Task.Info(fmt.Sprintf("区块扫描完成(Solana) %d 成功率：%s", slot, conf.GetSuccessRate(network)))
@@ -483,7 +496,7 @@ func (s *solana) slotDone(job solanaSlot) {
 		cursorOf(conf.Solana).complete(int64(job.Slot), int64(job.Slot))
 	}
 	if job.JobID != 0 {
-		scanJobPartDone(job.JobID)
+		scanJobPartDone(job.JobID, int64(job.Slot))
 	}
 }
 

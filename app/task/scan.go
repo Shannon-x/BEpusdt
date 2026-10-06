@@ -401,6 +401,15 @@ func scanWorkers(def int) int {
 
 var scanAbandonCount sync.Map // network → *atomic.Int64
 
+type abandonedRecord struct {
+	network string
+	from    int64
+	to      int64
+	reason  string
+}
+
+var abandonedRecords sync.Map // abandonedRecord key → abandonedRecord；落库失败时保留游标屏障
+
 // scanAbandon 区块重试耗尽后的统一处理：
 //  1. 结算回溯任务（订单回到待回溯）；
 //  2. 持久化：属于某个任务的区块 → 记该任务失败；否则新建 abandoned 任务等待自动重试；
@@ -412,18 +421,43 @@ func scanAbandon(network string, from, to, jobID int64, reason string, entry *lo
 
 	lookbackTrack.done(network, from, false)
 
+	persisted := true
 	if jobID != 0 {
-		scanJobPartFailed(jobID, reason)
+		scanJobPartFailed(jobID, reason, from)
 	} else if _, err := model.CreateScanJob(network, from, to, model.ScanJobKindAbandoned, model.ScanJobStatusPending, reason, time.Now().Add(model.ScanJobRetryBase)); err != nil {
+		persisted = false
+		record := abandonedRecord{network: network, from: from, to: to, reason: reason}
+		abandonedRecords.Store(fmt.Sprintf("%s:%d:%d", network, from, to), record)
 		entry.WithField("error", err.Error()).Error("persist abandoned block failed")
 	}
 
-	cursorOf(network).complete(from, to)
+	if persisted && jobID == 0 {
+		cursorOf(network).complete(from, to)
+	}
 	entry.WithField("abandoned_total", total).Error("scan abandoned after max attempts: " + reason)
 
+	persistenceStatus := fmt.Sprintf("已写入失败任务表，将在 %s 后自动重试", model.ScanJobRetryBase)
+	if !persisted {
+		persistenceStatus = "写入失败任务表失败，扫描游标已保留；数据库恢复后将再次写入并自动补扫"
+	}
 	scanAlert("abandon_"+network, 5*time.Minute, "区块扫描放弃",
-		fmt.Sprintf("网络：%s\n区块：%d → %d\n原因：%s\n已重试 %d 次仍失败，本进程累计放弃 %d 个区块。\n已写入失败任务表，将在 %s 后自动重试；也可通过后台 POST /api/scan/replay 立即补扫。",
-			network, from, to, reason, scanRetryMaxAttempts, total, model.ScanJobRetryBase))
+		fmt.Sprintf("网络：%s\n区块：%d → %d\n原因：%s\n已重试 %d 次仍失败，本进程累计放弃 %d 个区块。\n%s；也可通过后台 POST /api/scan/replay 立即补扫。",
+			network, from, to, reason, scanRetryMaxAttempts, total, persistenceStatus))
+}
+
+func retryAbandonedRecords() {
+	abandonedRecords.Range(func(k, v any) bool {
+		r := v.(abandonedRecord)
+		if _, err := model.CreateScanJob(r.network, r.from, r.to, model.ScanJobKindAbandoned, model.ScanJobStatusPending, r.reason, time.Now().Add(model.ScanJobRetryBase)); err != nil {
+			log.Task.Warn(fmt.Sprintf("persist abandoned block retry %s %d-%d failed: %v", r.network, r.from, r.to, err))
+
+			return true
+		}
+		abandonedRecords.CompareAndDelete(k, r)
+		cursorOf(r.network).complete(r.from, r.to)
+
+		return true
+	})
 }
 
 func abandonedBlocks(network string) int64 {
@@ -549,8 +583,26 @@ func Replay(network string, from, to int64) (int, error) {
 
 // dispatchScanJob 把任务区间送入扫描器并开始跟踪进度
 func dispatchScanJob(h scanHandle, job model.ScanJob) int {
-	n := h.replay(job.FromHeight, job.ToHeight, job.ID)
-	scanJobBegin(job, n)
+	from := job.FromHeight
+	if job.NextHeight > from {
+		from = job.NextHeight
+	}
+	to := job.ToHeight
+	if to-from >= replayMaxBlocks {
+		to = from + replayMaxBlocks - 1
+	}
+	p := &scanJobProgress{parts: make(map[int64]bool), toHeight: to}
+	// 先登记再入队：消费者可能在 replay 尚未返回时就完成区块。
+	scanJobs.Store(job.ID, p)
+	n := h.replay(from, to, job.ID)
+	p.mu.Lock()
+	p.expected = n
+	if p.registered > n {
+		p.expected = p.registered
+	}
+	p.sealed = true
+	p.mu.Unlock()
+	scanJobPersist(job.ID, p)
 
 	return n
 }
@@ -560,71 +612,126 @@ func dispatchScanJob(h scanHandle, job model.ScanJob) int {
 // 一个任务可能被拆成多个批次入队；全部批次成功才算完成，任一批次放弃即失败并按任务级退避重排。
 
 type scanJobProgress struct {
-	remaining atomic.Int32
-	failed    atomic.Bool
-	mu        sync.Mutex
-	reason    string
+	mu         sync.Mutex
+	parts      map[int64]bool // 批次起点 → 已结算；防止重复回报提前完成整个任务
+	registered int
+	expected   int
+	finished   int
+	sealed     bool
+	persisted  bool
+	failed     bool
+	reason     string
+	toHeight   int64 // 本次分段的结束高度；成功后续扫下一段
 }
 
 var scanJobs sync.Map // jobID → *scanJobProgress
 
 func scanJobBegin(job model.ScanJob, parts int) {
-	if parts <= 0 {
-		_ = job.MarkDone()
+	p := &scanJobProgress{parts: make(map[int64]bool), expected: parts, sealed: true, toHeight: job.ToHeight}
+	scanJobs.Store(job.ID, p)
+	scanJobPersist(job.ID, p)
+}
 
+// scanJobPartQueued 必须在把一个任务批次交给消费者之前调用。
+func scanJobPartQueued(jobID, key int64) {
+	if jobID == 0 {
 		return
 	}
-
-	p := &scanJobProgress{}
-	p.remaining.Store(int32(parts))
-	scanJobs.Store(job.ID, p)
+	if v, ok := scanJobs.Load(jobID); ok {
+		p := v.(*scanJobProgress)
+		p.mu.Lock()
+		if _, exists := p.parts[key]; !exists {
+			p.parts[key] = false
+			p.registered++
+		}
+		p.mu.Unlock()
+	}
 }
 
-func scanJobPartDone(jobID int64) {
-	scanJobPartFinished(jobID, "")
+func scanJobPartDone(jobID int64, key ...int64) {
+	scanJobPartFinished(jobID, "", key...)
 }
 
-func scanJobPartFailed(jobID int64, reason string) {
-	scanJobPartFinished(jobID, reason)
+func scanJobPartFailed(jobID int64, reason string, key ...int64) {
+	scanJobPartFinished(jobID, reason, key...)
 }
 
-func scanJobPartFinished(jobID int64, reason string) {
+func scanJobPartFinished(jobID int64, reason string, key ...int64) {
 	v, ok := scanJobs.Load(jobID)
 	if !ok {
 		return
 	}
 	p := v.(*scanJobProgress)
-	if reason != "" {
-		p.failed.Store(true)
-		p.mu.Lock()
-		p.reason = reason
-		p.mu.Unlock()
+	p.mu.Lock()
+	if len(key) > 0 {
+		done, exists := p.parts[key[0]]
+		if exists && done {
+			p.mu.Unlock()
+
+			return
+		}
+		// 兼容旧调用者的计数模式；已注册批次时忽略非本任务的回报。
+		if !exists && (!p.sealed || p.registered > 0) {
+			p.mu.Unlock()
+
+			return
+		}
+		p.parts[key[0]] = true
 	}
-	if p.remaining.Add(-1) > 0 {
+	if reason != "" {
+		p.failed = true
+		p.reason = reason
+	}
+	p.finished++
+	p.mu.Unlock()
+	scanJobPersist(jobID, p)
+}
+
+// scanJobPersist 完成状态写库成功后才删除内存追踪，数据库故障时由周期任务继续落库。
+func scanJobPersist(jobID int64, p *scanJobProgress) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if p.persisted || !p.sealed || p.finished < p.expected {
 		return
 	}
-
-	scanJobs.Delete(jobID)
 	job, ok := model.GetScanJob(jobID)
 	if !ok {
+		log.Task.Warn(fmt.Sprintf("scan job #%d reload for completion failed; will retry", jobID))
+
 		return
 	}
 
-	if !p.failed.Load() {
-		if err := job.MarkDone(); err != nil {
+	if !p.failed {
+		if p.toHeight < job.ToHeight {
+			err := model.Db.Model(&job).Updates(map[string]any{
+				"next_height": p.toHeight + 1, "status": model.ScanJobStatusPending,
+				"attempts": 0, "last_error": "", "next_retry_at": time.Now(),
+			}).Error
+			if err != nil {
+				log.Task.Warn(fmt.Sprintf("scan job #%d save progress failed: %v", jobID, err))
+
+				return
+			}
+		} else if err := job.MarkDone(); err != nil {
 			log.Task.Warn(fmt.Sprintf("scan job #%d mark done failed: %v", jobID, err))
+
+			return
 		}
-		log.Task.Info(fmt.Sprintf("扫描任务完成(%s) #%d %d → %d", job.Network, job.ID, job.FromHeight, job.ToHeight))
+		p.persisted = true
+		scanJobs.CompareAndDelete(jobID, p)
+		log.Task.Info(fmt.Sprintf("扫描任务分段完成(%s) #%d 至 %d / %d", job.Network, job.ID, p.toHeight, job.ToHeight))
 
 		return
 	}
 
-	p.mu.Lock()
-	reason = p.reason
-	p.mu.Unlock()
+	reason := p.reason
 	if err := job.MarkFailed(reason); err != nil {
 		log.Task.Warn(fmt.Sprintf("scan job #%d mark failed error: %v", jobID, err))
+
+		return
 	}
+	p.persisted = true
+	scanJobs.CompareAndDelete(jobID, p)
 	if job.Status == model.ScanJobStatusFailed {
 		scanAlert(fmt.Sprintf("job_dead_%d", jobID), 24*time.Hour, "扫描任务重试耗尽",
 			fmt.Sprintf("网络：%s\n任务：#%d 区块 %d → %d\n已自动重试 %d 次仍失败，已停止自动重试。\n最后错误：%s\n请更换 RPC 节点后通过 POST /api/scan/replay 或 bepusdt scan replay 手动补扫。",
@@ -634,7 +741,26 @@ func scanJobPartFinished(jobID int64, reason string) {
 
 // scanJobRetry 每分钟把到期的 pending 任务重新送入对应链的低优先级队列
 func scanJobRetry(context.Context) {
+	// 串行派发，避免并发巡检/后台触发把同一个 pending 任务入队两次。
+	scanJobRetryMu.Lock()
+	defer scanJobRetryMu.Unlock()
+	retryAbandonedRecords()
+	var activeIDs []int64
+	scanJobs.Range(func(k, v any) bool {
+		scanJobPersist(k.(int64), v.(*scanJobProgress))
+		if _, active := scanJobs.Load(k); active {
+			activeIDs = append(activeIDs, k.(int64))
+		}
+
+		return true
+	})
+	if _, err := model.RecoverScanJobs(model.ScanJobStaleAfter, activeIDs); err != nil {
+		log.Task.Warn(fmt.Sprintf("recover untracked scan jobs failed: %v", err))
+	}
 	for _, job := range model.DueScanJobs(20) {
+		if _, tracked := scanJobs.Load(job.ID); tracked {
+			continue
+		}
 		v, ok := scanRegistry.Load(job.Network)
 		if !ok { // 该链未启动，留在表里等待
 			continue
@@ -653,6 +779,8 @@ func scanJobRetry(context.Context) {
 		log.Task.Info(fmt.Sprintf("扫描任务重试(%s) #%d %d → %d 第 %d 次，批次 %d", job.Network, job.ID, job.FromHeight, job.ToHeight, job.Attempts+1, n))
 	}
 }
+
+var scanJobRetryMu sync.Mutex
 
 // ---- 连续扫描游标 ----
 //
@@ -682,17 +810,30 @@ func cursorOf(network string) *scanCursor {
 
 // load 首次调用时从数据库读取持久化高度
 func (c *scanCursor) load() int64 {
+	height, err := c.loadChecked()
+	if err != nil {
+		log.Task.Warn(fmt.Sprintf("load scan cursor %s failed: %v", c.network, err))
+	}
+
+	return height
+}
+
+func (c *scanCursor) loadChecked() (int64, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
 	if !c.loaded {
-		c.loaded = true
-		if h, ok := model.GetScanCursor(c.network); ok {
+		h, ok, err := model.LoadScanCursor(c.network)
+		if err != nil {
+			return c.height, err
+		}
+		if ok {
 			c.height = h
 		}
+		c.loaded = true
 	}
 
-	return c.height
+	return c.height, nil
 }
 
 func (c *scanCursor) current() int64 {
@@ -759,21 +900,18 @@ func (c *scanCursor) pendingCount() int {
 
 func (c *scanCursor) flush() {
 	c.mu.Lock()
+	defer c.mu.Unlock()
 	if !c.dirty {
-		c.mu.Unlock()
-
 		return
 	}
 	height := c.height
-	c.dirty = false
-	c.mu.Unlock()
 
 	if err := model.SaveScanCursor(c.network, height); err != nil {
 		log.Task.Warn(fmt.Sprintf("save scan cursor %s=%d failed: %v", c.network, height, err))
-		c.mu.Lock()
-		c.dirty = true
-		c.mu.Unlock()
+
+		return
 	}
+	c.dirty = false
 }
 
 func flushCursors(context.Context) {
@@ -796,49 +934,65 @@ func Shutdown() {
 //   - 其它情况保持 last 不变。
 //
 // 任何被跳过的区间都会落库并告警，不再静默丢块。
-func resumeFrom(network string, last, now, tolerance int64) int64 {
+func resumeFrom(network string, last, now, tolerance int64) (int64, error) {
 	if tolerance <= 0 {
 		tolerance = 1000
 	}
 	c := cursorOf(network)
 
 	if last == 0 {
-		saved := c.load()
+		saved, err := c.loadChecked()
+		if err != nil {
+			return last, fmt.Errorf("load scan cursor %s: %w", network, err)
+		}
 		if saved > 0 && now-saved <= tolerance {
 			c.reset(saved)
 			log.Task.Info(fmt.Sprintf("扫描游标恢复(%s)：从 %d 续扫至链头 %d", network, saved, now))
 
-			return saved
+			return saved, nil
 		}
 		if saved > 0 && now-1 > saved {
-			recordGap(network, saved+1, now-1, "重启后链头已超出 block_height_max_diff，从链头继续")
+			if err := recordGap(network, saved+1, now-1, "重启后链头已超出 block_height_max_diff，从链头继续"); err != nil {
+				return saved, err
+			}
 		}
 		c.reset(now - 1)
 
-		return now - 1
+		return now - 1, nil
 	}
 
 	if now-last > tolerance {
-		if now-1 > last {
-			recordGap(network, last+1, now-1, "链头跳跃超出 block_height_max_diff，对齐链头")
+		from := last + 1
+		// reset 会清除在途批次，尚未完成的实时高度也必须有持久化补扫证据。
+		if completed := c.current(); completed > 0 && completed < last {
+			from = completed + 1
+		}
+		if now-1 >= from {
+			if err := recordGap(network, from, now-1, "链头跳跃超出 block_height_max_diff，对齐链头"); err != nil {
+				return last, err
+			}
 		}
 		c.reset(now - 1)
 
-		return now - 1
+		return now - 1, nil
 	}
 
-	return last
+	return last, nil
 }
 
 // recordGap 未扫描区间落库为 deferred 任务并告警
-func recordGap(network string, from, to int64, reason string) {
+func recordGap(network string, from, to int64, reason string) error {
 	if _, err := model.CreateScanJob(network, from, to, model.ScanJobKindGap, model.ScanJobStatusDeferred, reason, time.Now()); err != nil {
 		log.Task.Error(fmt.Sprintf("persist scan gap %s %d-%d failed: %v", network, from, to, err))
+
+		return fmt.Errorf("persist scan gap %s %d-%d: %w", network, from, to, err)
 	}
 	log.Task.Warn(fmt.Sprintf("扫描区间跳过(%s) %d → %d：%s", network, from, to, reason))
 	scanNotice("gap_"+network, 10*time.Minute, "扫描区间跳过",
 		fmt.Sprintf("网络：%s\n区间：%d → %d（%d 个区块）\n原因：%s\n该区间已记录为 gap 任务，不会自动扫描；期间的待支付订单会由订单回溯覆盖。\n如需完整补扫可用 POST /api/scan/replay 分段回放（单次 ≤ %d 个区块）。",
 			network, from, to, to-from+1, reason, replayMaxBlocks))
+
+	return nil
 }
 
 // blockHeightTolerance block_height_max_diff 配置

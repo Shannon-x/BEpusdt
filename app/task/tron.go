@@ -44,7 +44,7 @@ type tron struct {
 	retryScheduled       map[int]*time.Timer
 	rpc                  endpointPicker
 	jobMu                sync.Mutex
-	jobOf                map[int]int64 // 回放/任务重试的区块 → 任务 ID
+	jobOf                map[int][]int64 // 同一高度可以属于多个重叠的回放任务
 }
 
 var tr tron
@@ -74,7 +74,17 @@ func (t *tron) replay(from, to, jobID int64) int {
 	t.jobMu.Lock()
 	for i := from; i <= to; i++ {
 		if jobID != 0 {
-			t.jobOf[int(i)] = jobID
+			scanJobPartQueued(jobID, i)
+			present := false
+			for _, id := range t.jobOf[int(i)] {
+				if id == jobID {
+					present = true
+					break
+				}
+			}
+			if !present {
+				t.jobOf[int(i)] = append(t.jobOf[int(i)], jobID)
+			}
 		}
 		n++
 	}
@@ -92,14 +102,12 @@ func (t *tron) blockDone(num int) {
 	cursorOf(conf.Tron).complete(int64(num), int64(num))
 
 	t.jobMu.Lock()
-	jobID, ok := t.jobOf[num]
-	if ok {
-		delete(t.jobOf, num)
-	}
+	jobIDs := t.jobOf[num]
+	delete(t.jobOf, num)
 	t.jobMu.Unlock()
 
-	if ok {
-		scanJobPartDone(jobID)
+	for _, jobID := range jobIDs {
+		scanJobPartDone(jobID, int64(num))
 	}
 }
 
@@ -112,7 +120,7 @@ func newTron() tron {
 		retryAttempts:        make(map[int]int),
 		retryScheduled:       make(map[int]*time.Timer),
 		rpc:                  endpointPicker{network: conf.Tron},
-		jobOf:                make(map[int]int64),
+		jobOf:                make(map[int][]int64),
 	}
 }
 
@@ -154,7 +162,13 @@ func (t *tron) syncBlocksForward(context.Context) {
 	}
 
 	// 启动时从持久化游标续扫；链头跳跃超出容忍度时记录 gap 任务后对齐链头
-	t.lastBlockNum = int(resumeFrom(conf.Tron, int64(t.lastBlockNum), int64(now), blockHeightTolerance()))
+	last, err := resumeFrom(conf.Tron, int64(t.lastBlockNum), int64(now), blockHeightTolerance())
+	if err != nil {
+		log.Task.WithError(err).Warn("Tron cursor recovery failed")
+
+		return
+	}
+	t.lastBlockNum = int(last)
 
 	// 区块高度没有变化
 	if now <= t.lastBlockNum {
@@ -280,11 +294,6 @@ func (t *tron) blockParse(n any) {
 
 		return
 	}
-
-	conf.RecordSuccess(conf.Tron, cast.ToString(num))
-	t.resetBlockRetry(num)
-	lookbackTrack.done(conf.Tron, int64(num), true)
-	t.blockDone(num)
 
 	var resources = make([]resource, 0)
 	var transfers = make([]transfer, 0)
@@ -434,12 +443,23 @@ func (t *tron) blockParse(n any) {
 		}
 	}
 
+	if err := persistTransfers(transfers); err != nil {
+		conf.RecordFailure(conf.Tron)
+		t.scheduleBlockRetry(num, 0)
+		scanLogger(conf.Tron, endpoint, "persistTransfers", logrus.Fields{"block": num, "error": err.Error()}).Warn("persist transfers failed, will retry")
+		return
+	}
 	if len(transfers) > 0 {
 		transferQueue.In <- transfers
 	}
 	if len(resources) > 0 {
 		resourceQueue.In <- resources
 	}
+
+	conf.RecordSuccess(conf.Tron, cast.ToString(num))
+	t.resetBlockRetry(num)
+	lookbackTrack.done(conf.Tron, int64(num), true)
+	t.blockDone(num)
 
 	log.Task.Info(fmt.Sprintf("区块扫描完成(Tron): %d 成功率：%s", num, conf.GetSuccessRate(conf.Tron)))
 }

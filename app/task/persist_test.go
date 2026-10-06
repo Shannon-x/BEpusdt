@@ -59,7 +59,7 @@ func TestResumeFromCursorAndGapPolicy(t *testing.T) {
 	if err := model.SaveScanCursor("resume-a", 1000); err != nil {
 		t.Fatal(err)
 	}
-	if got := resumeFrom("resume-a", 0, 1500, 1000); got != 1000 {
+	if got, err := resumeFrom("resume-a", 0, 1500, 1000); err != nil || got != 1000 {
 		t.Fatalf("within tolerance must resume from saved cursor, got %d", got)
 	}
 	if len(model.RecentScanJobs("resume-a", 5)) != 0 {
@@ -70,7 +70,7 @@ func TestResumeFromCursorAndGapPolicy(t *testing.T) {
 	if err := model.SaveScanCursor("resume-b", 1000); err != nil {
 		t.Fatal(err)
 	}
-	if got := resumeFrom("resume-b", 0, 5000, 1000); got != 4999 {
+	if got, err := resumeFrom("resume-b", 0, 5000, 1000); err != nil || got != 4999 {
 		t.Fatalf("beyond tolerance must align to head-1, got %d", got)
 	}
 	jobs := model.RecentScanJobs("resume-b", 5)
@@ -82,7 +82,7 @@ func TestResumeFromCursorAndGapPolicy(t *testing.T) {
 	}
 
 	// 运行中链头跳跃：同样记录 gap
-	if got := resumeFrom("resume-c", 100, 5000, 1000); got != 4999 {
+	if got, err := resumeFrom("resume-c", 100, 5000, 1000); err != nil || got != 4999 {
 		t.Fatalf("head jump must align to head-1, got %d", got)
 	}
 	if jobs := model.RecentScanJobs("resume-c", 5); len(jobs) != 1 || jobs[0].FromHeight != 101 || jobs[0].ToHeight != 4999 {
@@ -90,7 +90,7 @@ func TestResumeFromCursorAndGapPolicy(t *testing.T) {
 	}
 
 	// 正常前进：不变
-	if got := resumeFrom("resume-d", 100, 600, 1000); got != 100 {
+	if got, err := resumeFrom("resume-d", 100, 600, 1000); err != nil || got != 100 {
 		t.Fatalf("normal progress must keep last, got %d", got)
 	}
 	if len(model.RecentScanJobs("resume-d", 5)) != 0 {
@@ -98,7 +98,7 @@ func TestResumeFromCursorAndGapPolicy(t *testing.T) {
 	}
 
 	// 首次启动、无游标：从链头开始，不记录 gap
-	if got := resumeFrom("resume-e", 0, 777, 1000); got != 776 {
+	if got, err := resumeFrom("resume-e", 0, 777, 1000); err != nil || got != 776 {
 		t.Fatalf("fresh start must begin at head-1, got %d", got)
 	}
 	if len(model.RecentScanJobs("resume-e", 5)) != 0 {
@@ -151,6 +151,7 @@ func TestAbandonPersistsJobAndRetryTaskRedispatches(t *testing.T) {
 	if j, _ := model.GetScanJob(jobs[0].ID); j.Status != model.ScanJobStatusRunning {
 		t.Fatalf("dispatched job must be running, got %s", j.Status)
 	}
+	scanJobPartDone(jobs[0].ID)
 
 	// 队列拥堵：不派发
 	model.Db.Model(&jobs[0]).Updates(map[string]any{"status": model.ScanJobStatusPending, "next_retry_at": time.Now().Add(-time.Second)})

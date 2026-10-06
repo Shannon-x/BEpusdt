@@ -184,7 +184,7 @@ https://polygon.drpc.org, https://polygon-bor-rpc.publicnode.com, https://1rpc.i
 | 表 | 作用 |
 |---|---|
 | `bep_scan_cursor` | 每条链**已连续扫描完成**的最高高度。N 成功后才推进到 N，即使 N+1、N+2 已成功也不会越过失败的 N；每 2 秒落盘，进程退出时强制落盘 |
-| `bep_scan_job` | 扫描任务：`abandoned`（重试 10 次仍失败的区块）、`gap`（链头跳跃 / 重启导致未扫描的区间）、`replay`（手动补扫）。`pending` 任务每分钟自动重试一次，任务级退避 5m → 10m → … → 6h，最多 20 次后标记 `failed` 并告警 |
+| `bep_scan_job` | 扫描任务：`abandoned`（重试耗尽）、`gap`（跳过区间）、`replay`（手动补扫）、`native`（EVM 原生币独立补扫）。`pending` 任务每分钟调度，每次最多 5000 个高度，成功分段持久化 `next_height`；失败退避 5m → 10m → … → 6h，最多 20 次后标记 `failed` 并告警 |
 | `bep_chain_transfer` | 打到本系统钱包地址的链上入账流水，唯一键 `network + tx_hash + event_index`。**先落库再匹配订单**，同一区块重复扫描只产生一条记录 |
 | `bep_notify_outbox` | 商户回调事件。订单标记成功与回调事件在**同一事务**内写入；发送任务独立运行，记录每次响应状态码、响应摘要、失败原因与下次重试时间（1m → 2m → 4m → … → 6h），达到 `notify_max_retry` 次后标记 `dead` 并告警 |
 
@@ -196,7 +196,7 @@ https://polygon.drpc.org, https://polygon-bor-rpc.publicnode.com, https://1rpc.i
 
 ### 对账
 
-每 5 分钟把最近 48 小时内仍未匹配订单的入账重新跑一遍订单匹配（订单范围放宽到 48 小时内过期的订单）。付款发生在订单过期**之前**但被延迟扫到时，订单会进入确认流程并正常回调（迟到支付恢复）；付款发生在过期之后不会匹配。对账补认单时会发送告警，提示实时匹配阶段曾出现问题。
+每 5 分钟分页检查最近 48 小时内的未匹配入账，包含最近 48 小时**补录**的旧链上付款。实时消费、手动回放和对账均按付款发生时间选择当时有效的订单。付款发生在订单过期**之前**但被延迟扫到时，订单会进入确认流程并正常回调；付款发生在过期之后不会匹配。详细恢复步骤见 [ERC20 扫描故障与历史付款恢复](erc20-recovery.md)。
 
 ### 运维接口
 
@@ -213,6 +213,8 @@ bepusdt scan status                      # 游标、任务统计、outbox 状态
 bepusdt scan replay --network solana --from 448096702 --to 448096702
 bepusdt scan replay --network polygon --from 93363010 --to 93363019
 bepusdt scan jobs --network polygon --limit 30
+bepusdt scan retry --network ethereum --status failed
+bepusdt scan retry --network ethereum --status deferred --id 123
 ```
 
 与 `start` 一样通过 `--sqlite` / `--postgres`（或环境变量 `SQLITE` / `POSTGRESQL_DSN`）指定数据库。
