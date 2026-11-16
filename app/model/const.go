@@ -39,6 +39,9 @@ const (
 	ApiAuthToken ConfKey = "api_auth_token" // API 对接令牌
 	ApiAppUri    ConfKey = "api_app_uri"    // API 对接地址（收银台地址）
 
+	ApiCallbackAllowPrivate ConfKey = "api_callback_allow_private" // 回调地址允许内网 / 本机（1 允许，默认 0 拦截，防 SSRF）
+	ApiIpWhitelist          ConfKey = "api_ip_whitelist"           // API 下单接口来源 IP 白名单，IP 或 CIDR，留空不限制
+
 	AtomUSDT ConfKey = "atom_usdt"
 	AtomUSDC ConfKey = "atom_usdc"
 	AtomTRX  ConfKey = "atom_trx"

@@ -93,6 +93,8 @@ const getConf = async () => {
         "payment_match_mode",
         "api_app_uri",
         "api_auth_token",
+        "api_callback_allow_private",
+        "api_ip_whitelist",
         "admin_username",
         "admin_secure",
         "block_height_max_diff",
