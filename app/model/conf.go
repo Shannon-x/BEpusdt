@@ -18,6 +18,8 @@ import (
 var confCache sync.Map
 var defaultConf = map[ConfKey]string{
 	ApiAppUri:               "",
+	ApiCallbackAllowPrivate: "0",
+	ApiIpWhitelist:          "",
 	RateSyncInterval:        "3600",
 	AtomUSDT:                "0.01",
 	AtomUSDC:                "0.01",
@@ -211,6 +213,11 @@ func ConfInit() {
 func AuthToken() string {
 
 	return GetK(ApiAuthToken)
+}
+
+// CallbackAllowPrivate 商户回调是否允许访问内网 / 本机地址
+func CallbackAllowPrivate() bool {
+	return GetC(ApiCallbackAllowPrivate) == "1"
 }
 
 func IsInstalled() bool {

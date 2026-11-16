@@ -36,6 +36,8 @@ func TestMain(m *testing.M) {
 		panic(err)
 	}
 	model.FillDefaultConf()
+	// 测试用的商户回调是本机 httptest 服务，需允许回调内网地址（生产默认拦截）
+	model.SetK(model.ApiCallbackAllowPrivate, "1")
 	model.RefreshC()
 
 	// 测试中把重试延迟压到毫秒级，并录制而不是发送告警

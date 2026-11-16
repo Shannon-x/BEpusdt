@@ -10,6 +10,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/shopspring/decimal"
 	"github.com/spf13/cast"
+	"github.com/v03413/bepusdt/app/handler/base"
 	"github.com/v03413/bepusdt/app/model"
 	"github.com/v03413/bepusdt/app/utils"
 )
@@ -62,14 +63,14 @@ func (e Epay) Submit(ctx *gin.Context) {
 		return
 	}
 
-	if e.sign(dataMap, model.AuthToken()) != data.Sign {
+	if !utils.SignEqual(e.sign(dataMap, model.AuthToken()), data.Sign) {
 		ctx.String(200, "签名错误")
 
 		return
 	}
 
-	if !utils.IsAllowedCallbackURL(data.NotifyURL) {
-		ctx.String(200, "notify_url 地址不合法")
+	if err := base.CheckNotifyURL(data.NotifyURL); err != nil {
+		ctx.String(200, err.Error())
 
 		return
 	}

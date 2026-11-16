@@ -3,6 +3,7 @@ package model
 import (
 	"fmt"
 	"time"
+	"unicode/utf8"
 
 	"gorm.io/gorm/clause"
 )
@@ -276,10 +277,14 @@ func RetryScanJobs(network string, statuses []string, id int64) (int64, error) {
 	return res.RowsAffected, res.Error
 }
 
+// truncate 按字节截断到 n 以内，但不会截断在多字节字符中间（否则 MySQL utf8mb4 / PostgreSQL 会拒绝写入非法 UTF-8）
 func truncate(s string, n int) string {
-	if len(s) > n {
-		return s[:n]
+	if len(s) <= n {
+		return s
+	}
+	for n > 0 && !utf8.RuneStart(s[n]) {
+		n--
 	}
 
-	return s
+	return s[:n]
 }

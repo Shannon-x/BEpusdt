@@ -3,6 +3,7 @@ package utils
 import (
 	"crypto/md5"
 	"crypto/sha256"
+	"crypto/subtle"
 	"encoding/hex"
 	"fmt"
 	"math"
@@ -36,6 +37,16 @@ func IsExist(path string) bool {
 	}
 
 	return false
+}
+
+// SignEqual 以常量时间比较签名，避免通过响应耗时逐字节猜解签名（参考 epusdt check_sign）
+func SignEqual(expected string, got any) bool {
+	s, ok := got.(string)
+	if !ok || s == "" || expected == "" {
+		return false
+	}
+
+	return subtle.ConstantTimeCompare([]byte(expected), []byte(s)) == 1
 }
 
 func EpusdtSign(data map[string]interface{}, token string) string {

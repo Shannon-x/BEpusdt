@@ -14,7 +14,7 @@ func epusdtInit(engine *gin.Engine) {
 
 	orderGrp := engine.Group("/api/v1/order")
 	{
-		orderGrp.Use(epHdr.SignVerify)
+		orderGrp.Use(apiIPWhitelist(), epHdr.SignVerify)
 		orderGrp.POST("/create-transaction", epHdr.CreateTransaction)
 		orderGrp.POST("/cancel-transaction", epHdr.CancelTransaction)
 		orderGrp.POST("/create-order", epHdr.CreateOrder)

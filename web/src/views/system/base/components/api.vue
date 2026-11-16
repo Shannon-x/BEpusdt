@@ -18,6 +18,27 @@
             <a-input v-model="form.api_app_uri" placeholder="http(s)://your-host-uri" allow-clear />
           </a-form-item>
 
+          <a-form-item
+            field="api_callback_allow_private"
+            label="回调允许内网地址"
+            extra="默认关闭：notify_url 指向 localhost、内网或云元数据地址时拒绝下单并拦截回调（防 SSRF）。仅当商户系统与 BEpusdt 部署在同一服务器或内网时开启。"
+          >
+            <a-switch v-model="form.api_callback_allow_private" checked-value="1" unchecked-value="0" />
+          </a-form-item>
+
+          <a-form-item
+            field="api_ip_whitelist"
+            label="API 来源IP白名单"
+            extra="限制可调用下单/取消接口（/api/v1/order/*）的商户服务器 IP，支持单个 IP 或 CIDR，逗号或换行分隔，留空不限制。易支付 submit.php 由买家浏览器发起，不受此限制。"
+          >
+            <a-textarea
+              v-model="form.api_ip_whitelist"
+              placeholder="例如：203.0.113.10, 198.51.100.0/24"
+              :auto-size="{ minRows: 2, maxRows: 6 }"
+              allow-clear
+            />
+          </a-form-item>
+
           <a-form-item field="payment_checkout" label="前台收银模板">
             <template #extra>
               <span v-html="currentCheckoutInfo"></span>
@@ -113,6 +134,8 @@ const layoutMode = computed(() => (isMobile.value ? "vertical" : "horizontal"));
 const form = ref({
   api_auth_token: "",
   api_app_uri: "",
+  api_callback_allow_private: "0",
+  api_ip_whitelist: "",
   payment_checkout: "",
   payment_support_url: "",
   payment_network_sort: ""
@@ -183,6 +206,8 @@ const syncFormFromConfig = () => {
 
   form.value.api_auth_token = data.value.api_auth_token || "";
   form.value.api_app_uri = data.value.api_app_uri || "";
+  form.value.api_callback_allow_private = data.value.api_callback_allow_private === "1" ? "1" : "0";
+  form.value.api_ip_whitelist = data.value.api_ip_whitelist || "";
   form.value.payment_checkout = normalizePaymentCheckout(data.value.payment_checkout || data.value.payment_template);
   form.value.payment_support_url = data.value.payment_support_url || "";
   form.value.payment_network_sort = data.value.payment_network_sort || "";
@@ -243,6 +268,14 @@ const onSubmit = async ({ errors }: ArcoDesign.ArcoSubmit) => {
     {
       key: "api_app_uri",
       value: form.value.api_app_uri
+    },
+    {
+      key: "api_callback_allow_private",
+      value: form.value.api_callback_allow_private
+    },
+    {
+      key: "api_ip_whitelist",
+      value: form.value.api_ip_whitelist
     },
     {
       key: "payment_checkout",

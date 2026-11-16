@@ -63,6 +63,7 @@ func isolatedHeadRecoveryDB(t *testing.T) {
 		t.Fatal(err)
 	}
 	model.FillDefaultConf()
+	model.SetK(model.ApiCallbackAllowPrivate, "1") // 商户回调为本机 httptest 服务
 	model.RefreshC()
 }
 

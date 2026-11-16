@@ -14,6 +14,7 @@ import (
 	"github.com/v03413/bepusdt/app"
 	"github.com/v03413/bepusdt/app/log"
 	"github.com/v03413/bepusdt/app/model"
+	"github.com/v03413/bepusdt/app/netguard"
 	"github.com/v03413/bepusdt/app/notifier"
 	"github.com/v03413/bepusdt/app/utils"
 
@@ -32,6 +33,30 @@ type EpNotify struct {
 	Status             int     `json:"status"`               //  1：等待支付，2：支付成功，3：订单超时
 }
 
+// 商户回调客户端：默认只允许连接公网地址（拨号时校验真实 IP，防 SSRF / DNS 重绑定）
+var (
+	guardedClient = netguard.NewClient(5*time.Second, false)
+	privateClient = netguard.NewClient(5*time.Second, true)
+)
+
+// callbackClient 根据「回调允许内网地址」配置选择客户端
+func callbackClient() *http.Client {
+	if model.CallbackAllowPrivate() {
+		return privateClient
+	}
+
+	return guardedClient
+}
+
+// blockedHint 回调被内网拦截时，给出可操作的提示
+func blockedHint(err error) error {
+	if netguard.IsBlocked(err) {
+		return fmt.Errorf("%w。如商户系统与 BEpusdt 部署在同一服务器或内网，请在后台「API设置」开启「回调允许内网地址」", err)
+	}
+
+	return err
+}
+
 // Handle 执行一次商户回调并把结果写入回调 outbox：成功标记 sent，失败记录状态码 / 响应摘要并安排退避重试
 func Handle(order model.Order) error {
 	if order.Status != model.OrderStatusSuccess {
@@ -42,6 +67,13 @@ func Handle(order model.Order) error {
 	// 手动补单 / 手动重发等入口可能没有登记过事件，这里幂等补登记
 	if err := model.EnqueueNotify(model.Db, order.ID, order.TradeId); err != nil {
 		log.Warn("enqueue notify outbox error:", err.Error())
+	}
+
+	// 后台创建的订单回调地址是网关自身的空接口（/api/v1/pay/notify 只返回 ok），无需真的发起 HTTP 请求
+	if order.ApiType == model.OrderApiTypeAdmin {
+		markNotifySuccess(order, http.StatusOK, "admin order: no merchant callback")
+
+		return nil
 	}
 
 	var ctx, cancel = context.WithTimeout(context.Background(), time.Second*10)
@@ -57,6 +89,7 @@ func Handle(order model.Order) error {
 	}
 
 	if err != nil {
+		err = blockedHint(err)
 		markNotifyFail(order, status, body, err.Error())
 
 		return err
@@ -70,7 +103,7 @@ func Handle(order model.Order) error {
 
 // epay 易支付回调；返回商户响应状态码与响应体摘要，不做任何状态落库
 func epay(ctx context.Context, order model.Order) (int, string, error) {
-	var client = http.Client{Timeout: time.Second * 5}
+	var client = callbackClient()
 	var notifyUrl = fmt.Sprintf("%s?%s", order.NotifyUrl, order.BuildNotifyParams())
 
 	postReq, err := http.NewRequestWithContext(ctx, "GET", notifyUrl, nil)
@@ -134,7 +167,7 @@ func epusdt(ctx context.Context, order model.Order) (int, string, error) {
 		return 0, "", err
 	}
 
-	var client = http.Client{Timeout: time.Second * 5}
+	var client = callbackClient()
 	var postReq, err2 = http.NewRequestWithContext(ctx, "POST", order.NotifyUrl, strings.NewReader(string(jsonBody)))
 	if err2 != nil {
 		return 0, "", err2
@@ -164,7 +197,7 @@ func Bepusdt(o model.Order) {
 	}
 
 	var authToken = model.AuthToken()
-	var client = &http.Client{Timeout: time.Second * 5}
+	var client = callbackClient()
 	go func() {
 		if err := deliverBepusdtStatusUpdate(model.Db, client, authToken, o); err != nil {
 			log.Warn("notify BEpusdt Error:", err.Error())
@@ -174,7 +207,7 @@ func Bepusdt(o model.Order) {
 
 func deliverBepusdtStatusUpdate(db *gorm.DB, client *http.Client, authToken string, o model.Order) error {
 	if client == nil {
-		client = &http.Client{Timeout: time.Second * 5}
+		client = callbackClient()
 	}
 
 	var current model.Order
@@ -224,7 +257,7 @@ func deliverBepusdtStatusUpdate(db *gorm.DB, client *http.Client, authToken stri
 	req.Header.Set("Powered-By", "https://github.com/v03413/BEpusdt")
 	resp, err := client.Do(req)
 	if err != nil {
-		return err
+		return blockedHint(err)
 	}
 	defer resp.Body.Close()
 
@@ -232,7 +265,7 @@ func deliverBepusdtStatusUpdate(db *gorm.DB, client *http.Client, authToken stri
 		return fmt.Errorf("resp.StatusCode != 200")
 	}
 
-	all, _ := io.ReadAll(resp.Body)
+	all, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
 	log.Info(fmt.Sprintf("订单回调成功[%d]：%s %s", current.Status, current.TradeId, string(all)))
 
 	return nil

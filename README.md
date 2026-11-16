@@ -81,6 +81,7 @@ docker run -d --restart=unless-stopped -p 8080:8080 v03413/bepusdt:latest
 - [后台入口账密忘记重置教程](./docs/faq/login-reset.md)
 - [Telegram 通知 Chat ID 获取教程](docs/faq/telegram-chat-id.md)
 - [区块 RPC 节点稳定性说明指南‼️](./docs/faq/rpc-endpoint.md)
+- [API 安全加固说明（回调防 SSRF、IP 白名单）🛡️](./docs/faq/security.md)
 
 ## 🏝️ 社区交流
 

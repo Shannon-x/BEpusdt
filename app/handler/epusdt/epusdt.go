@@ -11,6 +11,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/shopspring/decimal"
 	"github.com/v03413/bepusdt/app"
+	"github.com/v03413/bepusdt/app/handler/base"
 	"github.com/v03413/bepusdt/app/log"
 	"github.com/v03413/bepusdt/app/model"
 	"github.com/v03413/bepusdt/app/utils"
@@ -98,7 +99,7 @@ func (Epusdt) Notify(ctx *gin.Context) {
 		return
 	}
 
-	if utils.EpusdtSign(m, model.AuthToken()) != sign {
+	if !utils.SignEqual(utils.EpusdtSign(m, model.AuthToken()), sign) {
 		ctx.String(200, "fail")
 		return
 	}
@@ -114,8 +115,8 @@ func (Epusdt) CreateOrder(ctx *gin.Context) {
 		return
 	}
 
-	if !utils.IsAllowedCallbackURL(req.NotifyURL) {
-		ctx.JSON(200, respFailJson("notify_url 地址不合法"))
+	if err := base.CheckNotifyURL(req.NotifyURL); err != nil {
+		ctx.JSON(200, respFailJson(err.Error()))
 
 		return
 	}
@@ -259,8 +260,8 @@ func (Epusdt) CreateTransaction(ctx *gin.Context) {
 		return
 	}
 
-	if !utils.IsAllowedCallbackURL(req.NotifyURL) {
-		ctx.JSON(200, respFailJson("notify_url 地址不合法"))
+	if err := base.CheckNotifyURL(req.NotifyURL); err != nil {
+		ctx.JSON(200, respFailJson(err.Error()))
 
 		return
 	}
@@ -446,7 +447,7 @@ func (Epusdt) SignVerify(ctx *gin.Context) {
 		return
 	}
 
-	if utils.EpusdtSign(m, model.AuthToken()) != sign {
+	if !utils.SignEqual(utils.EpusdtSign(m, model.AuthToken()), sign) {
 		ctx.JSON(200, respFailJson("签名错误"))
 		ctx.Abort()
 
